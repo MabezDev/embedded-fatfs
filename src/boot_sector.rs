@@ -2,6 +2,8 @@ use core::cmp;
 use core::u16;
 use core::u8;
 
+use embedded_io::blocking::WriteAllError;
+
 use crate::dir_entry::DIR_ENTRY_SIZE;
 use crate::error::{Error, IoError, ReadExactError};
 use crate::fs::{FatType, FormatVolumeOptions, FsStatusFlags};
@@ -94,7 +96,10 @@ impl BiosParameterBlock {
         Ok(bpb)
     }
 
-    fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error> {
+    fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error>
+    where
+        W::Error: From<WriteAllError<W::Error>>,
+    {
         wrt.write_u16_le(self.bytes_per_sector)?;
         wrt.write_u8(self.sectors_per_cluster)?;
         wrt.write_u16_le(self.reserved_sectors)?;
@@ -441,7 +446,10 @@ impl BootSector {
         Ok(boot)
     }
 
-    pub(crate) fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error> {
+    pub(crate) fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error>
+    where
+        W::Error: From<WriteAllError<W::Error>>,
+    {
         wrt.write_all(&self.bootjmp)?;
         wrt.write_all(&self.oem_name)?;
         self.bpb.serialize(&mut *wrt)?;

@@ -9,6 +9,7 @@ use core::u32;
 
 #[cfg(all(not(feature = "std"), feature = "alloc", feature = "lfn"))]
 use alloc::string::String;
+use embedded_io::blocking::WriteAllError;
 
 use crate::boot_sector::{format_boot_sector, BiosParameterBlock, BootSector};
 use crate::dir::{Dir, DirRawStream};
@@ -121,10 +122,11 @@ impl FsStatusFlags {
 
 /// A sum of `Read` and `Seek` traits.
 pub trait ReadSeek: Read + Seek {}
-impl<T: IoBase + Read + Seek> ReadSeek for T {}
+impl<T: IoBase + Read + Seek + From<ReadExactError<Self::Error>>> ReadSeek for T {}
 
 /// A sum of `Read`, `Write` and `Seek` traits.
 pub trait ReadWriteSeek: Read + Write + Seek {}
+
 impl<T: IoBase + Read + Write + Seek> ReadWriteSeek for T {}
 
 #[derive(Clone, Default, Debug)]
@@ -184,7 +186,11 @@ impl FsInfoSector {
         })
     }
 
-    fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), Error<W::Error>> {
+    fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), Error<W::Error>>
+    where
+        Error<W::Error>: From<ReadExactError<W::Error>> + From<WriteAllError<W::Error>>,
+        W::Error: From<WriteAllError<W::Error>> + From<ReadExactError<W::Error>>,
+    {
         wrt.write_u32_le(Self::LEAD_SIG)?;
         let reserved = [0_u8; 480];
         wrt.write_all(&reserved)?;
@@ -317,7 +323,10 @@ impl FileSystemStats {
 /// A FAT filesystem object.
 ///
 /// `FileSystem` struct is representing a state of a mounted FAT volume.
-pub struct FileSystem<IO: ReadWriteSeek, TP, OCC> {
+pub struct FileSystem<IO: Read + Write + Seek, TP, OCC>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
     pub(crate) disk: RefCell<IO>,
     pub(crate) options: FsOptions<TP, OCC>,
     fat_type: FatType,
@@ -329,11 +338,17 @@ pub struct FileSystem<IO: ReadWriteSeek, TP, OCC> {
     current_status_flags: Cell<FsStatusFlags>,
 }
 
-pub trait IntoStorage<T: Read + Write + Seek> {
+pub trait IntoStorage<T: Read + Write + Seek>
+where
+    T::Error: From<ReadExactError<T::Error>> + From<WriteAllError<T::Error>>,
+{
     fn into_storage(self) -> T;
 }
 
-impl<T: Read + Write + Seek> IntoStorage<T> for T {
+impl<T: ReadWriteSeek> IntoStorage<T> for T
+where
+    T::Error: From<ReadExactError<T::Error>> + From<WriteAllError<T::Error>>,
+{
     fn into_storage(self) -> Self {
         self
     }
@@ -346,7 +361,10 @@ impl<T: std::io::Read + std::io::Write + std::io::Seek> IntoStorage<io::StdIoWra
     }
 }
 
-impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
+impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
     /// Creates a new filesystem object instance.
     ///
     /// Supplied `storage` parameter cannot be seeked. If there is a need to read a fragment of disk
@@ -632,7 +650,10 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
     }
 }
 
-impl<IO: ReadWriteSeek, TP, OCC: OemCpConverter> FileSystem<IO, TP, OCC> {
+impl<IO: ReadWriteSeek, TP, OCC: OemCpConverter> FileSystem<IO, TP, OCC>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
     /// Returns a volume label from BPB in the Boot Sector as `String`.
     ///
     /// Non-ASCII characters are replaced by the replacement character (U+FFFD).
@@ -648,7 +669,10 @@ impl<IO: ReadWriteSeek, TP, OCC: OemCpConverter> FileSystem<IO, TP, OCC> {
     }
 }
 
-impl<IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> FileSystem<IO, TP, OCC> {
+impl<IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> FileSystem<IO, TP, OCC>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
     /// Returns a volume label from root directory as `String`.
     ///
     /// It finds file with `VOLUME_ID` attribute and returns its short name.
@@ -691,7 +715,10 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> FileSystem<IO, TP
 }
 
 /// `Drop` implementation tries to unmount the filesystem when dropping.
-impl<IO: ReadWriteSeek, TP, OCC> Drop for FileSystem<IO, TP, OCC> {
+impl<IO: Read + Write + Seek, TP, OCC> Drop for FileSystem<IO, TP, OCC>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
     fn drop(&mut self) {
         if let Err(err) = self.unmount_internal() {
             error!("unmount failed {:?}", err);
@@ -699,21 +726,33 @@ impl<IO: ReadWriteSeek, TP, OCC> Drop for FileSystem<IO, TP, OCC> {
     }
 }
 
-pub(crate) struct FsIoAdapter<'a, IO: ReadWriteSeek, TP, OCC> {
+pub(crate) struct FsIoAdapter<'a, IO: ReadWriteSeek, TP, OCC>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
     fs: &'a FileSystem<IO, TP, OCC>,
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> IoBase for FsIoAdapter<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek, TP, OCC> IoBase for FsIoAdapter<'_, IO, TP, OCC>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
     type Error = IO::Error;
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> Read for FsIoAdapter<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek, TP, OCC> Read for FsIoAdapter<'_, IO, TP, OCC>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         self.fs.disk.borrow_mut().read(buf)
     }
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> Write for FsIoAdapter<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek, TP, OCC> Write for FsIoAdapter<'_, IO, TP, OCC>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         let size = self.fs.disk.borrow_mut().write(buf)?;
         if size > 0 {
@@ -727,14 +766,20 @@ impl<IO: ReadWriteSeek, TP, OCC> Write for FsIoAdapter<'_, IO, TP, OCC> {
     }
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> Seek for FsIoAdapter<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek, TP, OCC> Seek for FsIoAdapter<'_, IO, TP, OCC>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         self.fs.disk.borrow_mut().seek(pos)
     }
 }
 
 // Note: derive cannot be used because of invalid bounds. See: https://github.com/rust-lang/rust/issues/26925
-impl<IO: ReadWriteSeek, TP, OCC> Clone for FsIoAdapter<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek, TP, OCC> Clone for FsIoAdapter<'_, IO, TP, OCC>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
     fn clone(&self) -> Self {
         FsIoAdapter { fs: self.fs }
     }
@@ -743,7 +788,10 @@ impl<IO: ReadWriteSeek, TP, OCC> Clone for FsIoAdapter<'_, IO, TP, OCC> {
 fn fat_slice<S: ReadWriteSeek, B: BorrowMut<S>>(
     io: B,
     bpb: &BiosParameterBlock,
-) -> impl ReadWriteSeek<Error = Error<S::Error>> {
+) -> impl ReadWriteSeek<Error = Error<S::Error>>
+where
+    S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+{
     let sectors_per_fat = bpb.sectors_per_fat();
     let mirroring_enabled = bpb.mirroring_enabled();
     let (fat_first_sector, mirrors) = if mirroring_enabled {
@@ -765,7 +813,10 @@ pub(crate) struct DiskSlice<B, S = B> {
     phantom: PhantomData<S>,
 }
 
-impl<B: BorrowMut<S>, S: ReadWriteSeek> DiskSlice<B, S> {
+impl<B: BorrowMut<S>, S: ReadWriteSeek> DiskSlice<B, S>
+where
+    S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+{
     pub(crate) fn new(begin: u64, size: u64, mirrors: u8, inner: B) -> Self {
         Self {
             begin,
@@ -910,7 +961,10 @@ impl OemCpConverter for LossyOemCpConverter {
     }
 }
 
-pub(crate) fn write_zeros<IO: ReadWriteSeek>(disk: &mut IO, mut len: u64) -> Result<(), IO::Error> {
+pub(crate) fn write_zeros<IO: ReadWriteSeek>(disk: &mut IO, mut len: u64) -> Result<(), IO::Error>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
     const ZEROS: [u8; 512] = [0_u8; 512];
     while len > 0 {
         let write_size = cmp::min(len, ZEROS.len() as u64) as usize;
@@ -920,7 +974,10 @@ pub(crate) fn write_zeros<IO: ReadWriteSeek>(disk: &mut IO, mut len: u64) -> Res
     Ok(())
 }
 
-fn write_zeros_until_end_of_sector<IO: ReadWriteSeek>(disk: &mut IO, bytes_per_sector: u16) -> Result<(), IO::Error> {
+fn write_zeros_until_end_of_sector<IO: ReadWriteSeek>(disk: &mut IO, bytes_per_sector: u16) -> Result<(), IO::Error>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
     let pos = disk.seek(SeekFrom::Current(0))?;
     let total_bytes_to_write = u64::from(bytes_per_sector) - (pos % u64::from(bytes_per_sector));
     if total_bytes_to_write != u64::from(bytes_per_sector) {
@@ -1122,7 +1179,10 @@ impl FormatVolumeOptions {
 ///
 /// Panics in non-optimized build if `storage` position returned by `seek` is not zero.
 #[allow(clippy::needless_pass_by_value)]
-pub fn format_volume<S: ReadWriteSeek>(storage: &mut S, options: FormatVolumeOptions) -> Result<(), Error<S::Error>> {
+pub fn format_volume<S: ReadWriteSeek>(storage: &mut S, options: FormatVolumeOptions) -> Result<(), Error<S::Error>>
+where
+    S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+{
     trace!("format_volume");
     debug_assert!(storage.seek(SeekFrom::Current(0))? == 0);
 

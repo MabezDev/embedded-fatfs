@@ -1,6 +1,8 @@
 use core::cmp;
 use core::convert::TryFrom;
 
+use embedded_io::blocking::{ReadExactError, WriteAllError};
+
 use crate::dir_entry::DirEntryEditor;
 use crate::error::Error;
 use crate::fs::{FileSystem, ReadWriteSeek};
@@ -12,7 +14,10 @@ const MAX_FILE_SIZE: u32 = core::u32::MAX;
 /// A FAT filesystem file object used for reading and writing data.
 ///
 /// This struct is created by the `open_file` or `create_file` methods on `Dir`.
-pub struct File<'a, IO: ReadWriteSeek, TP, OCC> {
+pub struct File<'a, IO: ReadWriteSeek, TP, OCC>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
     // Note first_cluster is None if file is empty
     first_cluster: Option<u32>,
     // Note: if offset points between clusters current_cluster is the previous cluster
@@ -36,7 +41,10 @@ pub struct Extent {
     pub size: u32,
 }
 
-impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
+impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
     pub(crate) fn new(
         first_cluster: Option<u32>,
         entry: Option<DirEntryEditor>,
@@ -219,7 +227,10 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
     }
 }
 
-impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> File<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> File<'_, IO, TP, OCC>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
     fn update_dir_entry_after_write(&mut self) {
         let offset = self.offset;
         if let Some(ref mut e) = self.entry {
@@ -232,7 +243,10 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> File<'_, IO, TP, OCC> {
     }
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> Drop for File<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek, TP, OCC> Drop for File<'_, IO, TP, OCC>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
     fn drop(&mut self) {
         if let Err(err) = self.flush() {
             error!("flush failed {:?}", err);
@@ -241,7 +255,10 @@ impl<IO: ReadWriteSeek, TP, OCC> Drop for File<'_, IO, TP, OCC> {
 }
 
 // Note: derive cannot be used because of invalid bounds. See: https://github.com/rust-lang/rust/issues/26925
-impl<IO: ReadWriteSeek, TP, OCC> Clone for File<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek, TP, OCC> Clone for File<'_, IO, TP, OCC>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
     fn clone(&self) -> Self {
         File {
             first_cluster: self.first_cluster,
@@ -253,11 +270,17 @@ impl<IO: ReadWriteSeek, TP, OCC> Clone for File<'_, IO, TP, OCC> {
     }
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> IoBase for File<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek, TP, OCC> IoBase for File<'_, IO, TP, OCC>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
     type Error = Error<IO::Error>;
 }
 
-impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Read for File<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Read for File<'_, IO, TP, OCC>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         trace!("File::read");
         let cluster_size = self.fs.cluster_size();
@@ -314,14 +337,17 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Read for File<'_, IO, TP, OCC> {
 #[cfg(feature = "std")]
 impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> std::io::Read for File<'_, IO, TP, OCC>
 where
-    std::io::Error: From<Error<IO::Error>>,
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        Ok(Read::read(self, buf)?)
+        Ok(Read::read(self, buf).unwrap()) // TODO map
     }
 }
 
-impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         trace!("File::write");
         let cluster_size = self.fs.cluster_size();
@@ -393,22 +419,25 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
 #[cfg(feature = "std")]
 impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> std::io::Write for File<'_, IO, TP, OCC>
 where
-    std::io::Error: From<Error<IO::Error>>,
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        Ok(Write::write(self, buf)?)
+        Ok(Write::write(self, buf).unwrap()) // TODO handle
     }
 
     fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
-        Ok(Write::write_all(self, buf)?)
+        Ok(Write::write_all(self, buf).unwrap()) // TODO handle
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        Ok(Write::flush(self)?)
+        Ok(Write::flush(self).unwrap()) // TODO handle
     }
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> Seek for File<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek, TP, OCC> Seek for File<'_, IO, TP, OCC>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         trace!("File::seek");
         let size_opt = self.size();
@@ -476,9 +505,9 @@ impl<IO: ReadWriteSeek, TP, OCC> Seek for File<'_, IO, TP, OCC> {
 #[cfg(test)]
 impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> std::io::Seek for File<'_, IO, TP, OCC>
 where
-    std::io::Error: From<Error<IO::Error>>,
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
-        Ok(Seek::seek(self, crate::StdSeekPosWrapper::from(pos).into())?)
+        Ok(Seek::seek(self, crate::StdSeekPosWrapper::from(pos).into()).unwrap()) // TODO handle
     }
 }

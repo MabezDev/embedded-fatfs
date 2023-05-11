@@ -41,7 +41,7 @@ default = ["chrono", "std", "alloc", "lfn", "unicode", "log_level_trace"]
 [dependencies]
 bitflags = "1.0"
 log = "0.4"
-embedded-io = "0.4.0"
+embedded-io = {version = "0.4", git = "https://github.com/MabezDev/embedded-io", branch = "write-zero"}
 chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
 
 [dev-dependencies]

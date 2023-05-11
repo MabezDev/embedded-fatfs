@@ -6,6 +6,7 @@ use crate::{ErrorKind, IoError};
 pub use embedded_io::Io as IoBase;
 pub use embedded_io::SeekFrom;
 
+use embedded_io::blocking::WriteAllError;
 pub use embedded_io::blocking::{Read, Seek, Write};
 
 /// A wrapper struct for types that have implementations for `std::io` traits.
@@ -32,7 +33,7 @@ impl<T> StdIoWrapper<T> {
 
 #[cfg(feature = "std")]
 #[derive(Debug)]
-pub struct StdErrWrapper {}
+pub struct StdErrWrapper {} // TODO store error inside
 
 #[cfg(feature = "std")]
 #[derive(Debug)]
@@ -108,6 +109,13 @@ impl From<ReadExactError<StdErrWrapper>> for StdErrWrapper {
 }
 
 #[cfg(feature = "std")]
+impl From<WriteAllError<StdErrWrapper>> for StdErrWrapper {
+    fn from(_: WriteAllError<StdErrWrapper>) -> Self {
+        Self {}
+    }
+}
+
+#[cfg(feature = "std")]
 impl IoError for StdErrWrapper {
     fn kind(&self) -> ErrorKind {
         ErrorKind::Other
@@ -144,8 +152,9 @@ impl<T: std::io::Write> Write for StdIoWrapper<T> {
         Ok(self.inner.write(buf)?)
     }
 
-    fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
-        Ok(self.inner.write_all(buf)?)
+    fn write_all(&mut self, buf: &[u8]) -> Result<(), WriteAllError<Self::Error>> {
+        self.inner.write_all(buf).unwrap(); // TODO handle
+        Ok(())
     }
 
     fn flush(&mut self) -> Result<(), Self::Error> {
@@ -206,18 +215,24 @@ pub(crate) trait WriteLeExt {
     fn write_u32_le(&mut self, n: u32) -> Result<(), Self::Error>;
 }
 
-impl<T: Write> WriteLeExt for T {
+impl<T: Write> WriteLeExt for T
+where
+    <T as IoBase>::Error: From<WriteAllError<<T as IoBase>::Error>>,
+{
     type Error = <Self as IoBase>::Error;
 
     fn write_u8(&mut self, n: u8) -> Result<(), Self::Error> {
-        self.write_all(&[n])
+        self.write_all(&[n])?;
+        Ok(())
     }
 
     fn write_u16_le(&mut self, n: u16) -> Result<(), Self::Error> {
-        self.write_all(&n.to_le_bytes())
+        self.write_all(&n.to_le_bytes())?;
+        Ok(())
     }
 
     fn write_u32_le(&mut self, n: u32) -> Result<(), Self::Error> {
-        self.write_all(&n.to_le_bytes())
+        self.write_all(&n.to_le_bytes())?;
+        Ok(())
     }
 }

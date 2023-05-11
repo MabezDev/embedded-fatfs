@@ -3,6 +3,8 @@ pub use embedded_io::blocking::ReadExactError;
 pub use embedded_io::Error as IoError;
 pub use embedded_io::ErrorKind;
 pub use embedded_io::Io as IoBase;
+use embedded_io::blocking::WriteAllError;
+
 
 #[cfg(feature = "std")]
 use crate::io::StdErrWrapper;
@@ -63,6 +65,24 @@ impl<T: IoError> From<ReadExactError<T>> for Error<T> {
         match error {
             ReadExactError::UnexpectedEof => Self::UnexpectedEof,
             ReadExactError::Other(error) => error.into(),
+        }
+    }
+}
+
+impl<T> From<WriteAllError<Error<T>>> for Error<T> {
+    fn from(error: WriteAllError<Error<T>>) -> Self {
+        match error {
+            WriteAllError::WriteZero => Self::WriteZero,
+            WriteAllError::Other(error) => error,
+        }
+    }
+}
+
+impl<T: IoError> From<WriteAllError<T>> for Error<T> {
+    fn from(error: WriteAllError<T>) -> Self {
+        match error {
+            WriteAllError::WriteZero => Self::WriteZero,
+            WriteAllError::Other(error) => error.into(),
         }
     }
 }
