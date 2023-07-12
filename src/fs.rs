@@ -9,7 +9,7 @@ use core::u32;
 
 #[cfg(all(not(feature = "std"), feature = "alloc", feature = "lfn"))]
 use alloc::string::String;
-use embedded_io::blocking::WriteAllError;
+use embedded_io::WriteAllError;
 
 use crate::boot_sector::{format_boot_sector, BiosParameterBlock, BootSector};
 use crate::dir::{Dir, DirRawStream};

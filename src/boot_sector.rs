@@ -2,7 +2,7 @@ use core::cmp;
 use core::u16;
 use core::u8;
 
-use embedded_io::blocking::WriteAllError;
+use embedded_io::WriteAllError;
 
 use crate::dir_entry::DIR_ENTRY_SIZE;
 use crate::error::{Error, IoError, ReadExactError};

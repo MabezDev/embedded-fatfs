@@ -1,7 +1,7 @@
 #[cfg(all(not(feature = "std"), feature = "alloc", feature = "lfn"))]
 use alloc::vec::Vec;
-use embedded_io::blocking::ReadExactError;
-use embedded_io::blocking::WriteAllError;
+use embedded_io::ReadExactError;
+use embedded_io::WriteAllError;
 
 use core::char;
 use core::cmp;

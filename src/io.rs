@@ -3,11 +3,11 @@ use crate::error::ReadExactError;
 #[cfg(feature = "std")]
 use crate::{ErrorKind, IoError};
 
-pub use embedded_io::Io as IoBase;
+pub use embedded_io::ErrorType as IoBase;
 pub use embedded_io::SeekFrom;
 
-use embedded_io::blocking::WriteAllError;
-pub use embedded_io::blocking::{Read, Seek, Write};
+use embedded_io::WriteAllError;
+pub use embedded_io::{Read, Seek, Write};
 
 /// A wrapper struct for types that have implementations for `std::io` traits.
 ///

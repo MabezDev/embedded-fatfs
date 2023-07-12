@@ -1,9 +1,9 @@
 use core::fmt::Debug;
-pub use embedded_io::blocking::ReadExactError;
+pub use embedded_io::ReadExactError;
 pub use embedded_io::Error as IoError;
 pub use embedded_io::ErrorKind;
-pub use embedded_io::Io as IoBase;
-use embedded_io::blocking::WriteAllError;
+pub use embedded_io::ErrorType as IoBase;
+use embedded_io::WriteAllError;
 
 
 #[cfg(feature = "std")]

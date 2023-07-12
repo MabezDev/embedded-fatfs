@@ -41,7 +41,7 @@ default = ["chrono", "std", "alloc", "lfn", "unicode", "log_level_trace"]
 [dependencies]
 bitflags = "1.0"
 log = "0.4"
-embedded-io = {version = "0.4", git = "https://github.com/MabezDev/embedded-io", branch = "write-zero"}
+embedded-io = {version = "0.5", git = "https://github.com/rust-embedded/embedded-hal", rev = "6e8bd141501fbf489ca47ed48bf5491b2eb0705e" }
 chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
 
 [dev-dependencies]
