@@ -254,7 +254,7 @@ impl DirFileEntryData {
         self.modify_time = date_time.time.encode().0;
     }
 
-    pub(crate) fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error>
+    pub(crate) async fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error>
     where
         W::Error: From<WriteAllError<W::Error>>,
     {
@@ -326,7 +326,7 @@ impl DirLfnEntryData {
         lfn_part[11..13].copy_from_slice(&self.name_2);
     }
 
-    pub(crate) fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error>
+    pub(crate) async fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error>
     where
         W::Error: From<WriteAllError<W::Error>>,
     {
@@ -375,15 +375,15 @@ pub(crate) enum DirEntryData {
 }
 
 impl DirEntryData {
-    pub(crate) fn serialize<E: IoError, W: Write<Error = Error<E>>>(&self, wrt: &mut W) -> Result<(), Error<E>> {
+    pub(crate) async fn serialize<E: IoError, W: Write<Error = Error<E>>>(&self, wrt: &mut W) -> Result<(), Error<E>> {
         trace!("DirEntryData::serialize");
         match self {
-            DirEntryData::File(file) => file.serialize(wrt),
-            DirEntryData::Lfn(lfn) => lfn.serialize(wrt),
+            DirEntryData::File(file) => file.serialize(wrt).await,
+            DirEntryData::Lfn(lfn) => lfn.serialize(wrt).await,
         }
     }
 
-    pub(crate) fn deserialize<E: IoError, R: Read<Error = Error<E>>>(rdr: &mut R) -> Result<Self, Error<E>>
+    pub(crate) async fn deserialize<E: IoError, R: Read<Error = Error<E>>>(rdr: &mut R) -> Result<Self, Error<E>>
     where
         R::Error: From<ReadExactError<R::Error>>,
     {
@@ -524,24 +524,24 @@ impl DirEntryEditor {
         }
     }
 
-    pub(crate) fn flush<IO: ReadWriteSeek, TP, OCC>(&mut self, fs: &FileSystem<IO, TP, OCC>) -> Result<(), IO::Error>
+    pub(crate) async fn flush<IO: ReadWriteSeek, TP, OCC>(&mut self, fs: &FileSystem<IO, TP, OCC>) -> Result<(), IO::Error>
     where
         IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
     {
         if self.dirty {
-            self.write(fs)?;
+            self.write(fs).await?;
             self.dirty = false;
         }
         Ok(())
     }
 
-    fn write<IO: ReadWriteSeek, TP, OCC>(&self, fs: &FileSystem<IO, TP, OCC>) -> Result<(), IO::Error>
+    async fn write<IO: ReadWriteSeek, TP, OCC>(&self, fs: &FileSystem<IO, TP, OCC>) -> Result<(), IO::Error>
     where
         IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
     {
         let mut disk = fs.disk.borrow_mut();
         disk.seek(io::SeekFrom::Start(self.pos)).await?;
-        self.data.serialize(&mut *disk)
+        self.data.serialize(&mut *disk).await
     }
 }
 

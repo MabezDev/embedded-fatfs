@@ -77,8 +77,8 @@ where
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         match self {
-            DirRawStream::File(file) => file.read(buf),
-            DirRawStream::Root(raw) => raw.read(buf),
+            DirRawStream::File(file) => file.read(buf).await,
+            DirRawStream::Root(raw) => raw.read(buf).await,
         }
     }
 }
@@ -89,14 +89,14 @@ where
 {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         match self {
-            DirRawStream::File(file) => file.write(buf),
-            DirRawStream::Root(raw) => raw.write(buf),
+            DirRawStream::File(file) => file.write(buf).await,
+            DirRawStream::Root(raw) => raw.write(buf).await,
         }
     }
     async fn flush(&mut self) -> Result<(), Self::Error> {
         match self {
-            DirRawStream::File(file) => file.flush(),
-            DirRawStream::Root(raw) => raw.flush(),
+            DirRawStream::File(file) => file.flush().await,
+            DirRawStream::Root(raw) => raw.flush().await,
         }
     }
 }
@@ -105,7 +105,7 @@ impl<IO: ReadWriteSeek, TP, OCC> Seek for DirRawStream<'_, IO, TP, OCC>
 where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
-    fn.seek(&mut self, pos: SeekFrom).await -> Result<u64, Self::Error> {
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         match self {
             DirRawStream::File(file) => file.seek(pos).await,
             DirRawStream::Root(raw) => raw.seek(pos).await,
@@ -160,7 +160,7 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
 where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
-    fn find_entry(
+    async fn find_entry(
         &self,
         name: &str,
         is_dir: Option<bool>,
@@ -200,7 +200,7 @@ where
         Ok(None)
     }
 
-    fn check_for_existence(
+    async fn check_for_existence(
         &self,
         name: &str,
         is_dir: Option<bool>,
@@ -208,7 +208,7 @@ where
         let mut short_name_gen = ShortNameGenerator::new(name);
         loop {
             // find matching entry
-            let r = self.find_entry(name, is_dir, Some(&mut short_name_gen));
+            let r = self.find_entry(name, is_dir, Some(&mut short_name_gen)).await;
             match r {
                 // file not found - continue with short name generation
                 Err(Error::NotFound) => {}
@@ -240,12 +240,14 @@ where
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub async fn open_dir(&self, path: &str) -> Result<Self, Error<IO::Error>> {
         trace!("Dir::open_dir {}", path);
-        let (name, rest_opt) = split_path(path);
-        let e = self.find_entry(name, Some(true), None)?;
-        match rest_opt {
-            Some(rest) => e.to_dir().open_dir(rest),
-            None => Ok(e.to_dir()),
-        }
+        todo!();
+        // TODO recursive
+        // let (name, rest_opt) = split_path(path);
+        // let e = self.find_entry(name, Some(true), None).await?;
+        // match rest_opt {
+        //     Some(rest) => e.to_dir().open_dir(rest),
+        //     None => Ok(e.to_dir()),
+        // }
     }
 
     /// Opens existing file.
@@ -261,15 +263,17 @@ where
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub async fn open_file(&self, path: &str) -> Result<File<'a, IO, TP, OCC>, Error<IO::Error>> {
         trace!("Dir::open_file {}", path);
+        todo!();
+        // TODO recursive
         // traverse path
-        let (name, rest_opt) = split_path(path);
-        if let Some(rest) = rest_opt {
-            let e = self.find_entry(name, Some(true), None)?;
-            return e.to_dir().open_file(rest);
-        }
-        // convert entry to a file
-        let e = self.find_entry(name, Some(false), None)?;
-        Ok(e.to_file())
+        // let (name, rest_opt) = split_path(path);
+        // if let Some(rest) = rest_opt {
+        //     let e = self.find_entry(name, Some(true), None).await?;
+        //     return e.to_dir().open_file(rest).await;
+        // }
+        // // convert entry to a file
+        // let e = self.find_entry(name, Some(false), None).await?;
+        // Ok(e.to_file())
     }
 
     /// Creates new or opens existing file=.
@@ -288,22 +292,24 @@ where
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub async fn create_file(&self, path: &str) -> Result<File<'a, IO, TP, OCC>, Error<IO::Error>> {
         trace!("Dir::create_file {}", path);
+        todo!();
+        // TODO recursive
         // traverse path
-        let (name, rest_opt) = split_path(path);
-        if let Some(rest) = rest_opt {
-            return self.find_entry(name, Some(true), None)?.to_dir().create_file(rest);
-        }
-        // this is final filename in the path
-        let r = self.check_for_existence(name, Some(false))?;
-        match r {
-            // file does not exist - create it
-            DirEntryOrShortName::ShortName(short_name) => {
-                let sfn_entry = self.create_sfn_entry(short_name, FileAttributes::from_bits_truncate(0), None);
-                Ok(self.write_entry(name, sfn_entry)?.to_file())
-            }
-            // file already exists - return it
-            DirEntryOrShortName::DirEntry(e) => Ok(e.to_file()),
-        }
+        // let (name, rest_opt) = split_path(path);
+        // if let Some(rest) = rest_opt {
+        //     return self.find_entry(name, Some(true), None).await?.to_dir().create_file(rest).await;
+        // }
+        // // this is final filename in the path
+        // let r = self.check_for_existence(name, Some(false)).await?;
+        // match r {
+        //     // file does not exist - create it
+        //     DirEntryOrShortName::ShortName(short_name) => {
+        //         let sfn_entry = self.create_sfn_entry(short_name, FileAttributes::from_bits_truncate(0), None);
+        //         Ok(self.write_entry(name, sfn_entry).await?.to_file())
+        //     }
+        //     // file already exists - return it
+        //     DirEntryOrShortName::DirEntry(e) => Ok(e.to_file()),
+        // }
     }
 
     /// Creates new directory or opens existing.
@@ -321,35 +327,37 @@ where
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub async fn create_dir(&self, path: &str) -> Result<Self, Error<IO::Error>> {
         trace!("Dir::create_dir {}", path);
+        todo!();
+        // TODO recursive
         // traverse path
-        let (name, rest_opt) = split_path(path);
-        if let Some(rest) = rest_opt {
-            return self.find_entry(name, Some(true), None)?.to_dir().create_dir(rest);
-        }
-        // this is final filename in the path
-        let r = self.check_for_existence(name, Some(true))?;
-        match r {
-            // directory does not exist - create it
-            DirEntryOrShortName::ShortName(short_name) => {
-                // alloc cluster for directory data
-                let cluster = self.fs.alloc_cluster(None, true)?;
-                // create entry in parent directory
-                let sfn_entry = self.create_sfn_entry(short_name, FileAttributes::DIRECTORY, Some(cluster));
-                let entry = self.write_entry(name, sfn_entry)?;
-                let dir = entry.to_dir();
-                // create special entries "." and ".."
-                let dot_sfn = ShortNameGenerator::generate_dot();
-                let sfn_entry = self.create_sfn_entry(dot_sfn, FileAttributes::DIRECTORY, entry.first_cluster());
-                dir.write_entry(".", sfn_entry)?;
-                let dotdot_sfn = ShortNameGenerator::generate_dotdot();
-                let sfn_entry =
-                    self.create_sfn_entry(dotdot_sfn, FileAttributes::DIRECTORY, self.stream.first_cluster());
-                dir.write_entry("..", sfn_entry)?;
-                Ok(dir)
-            }
-            // directory already exists - return it
-            DirEntryOrShortName::DirEntry(e) => Ok(e.to_dir()),
-        }
+        // let (name, rest_opt) = split_path(path);
+        // if let Some(rest) = rest_opt {
+        //     return self.find_entry(name, Some(true), None).await?.to_dir().create_dir(rest).await;
+        // }
+        // // this is final filename in the path
+        // let r = self.check_for_existence(name, Some(true)).await?;
+        // match r {
+        //     // directory does not exist - create it
+        //     DirEntryOrShortName::ShortName(short_name) => {
+        //         // alloc cluster for directory data
+        //         let cluster = self.fs.alloc_cluster(None, true).await?;
+        //         // create entry in parent directory
+        //         let sfn_entry = self.create_sfn_entry(short_name, FileAttributes::DIRECTORY, Some(cluster));
+        //         let entry = self.write_entry(name, sfn_entry).await?;
+        //         let dir = entry.to_dir();
+        //         // create special entries "." and ".."
+        //         let dot_sfn = ShortNameGenerator::generate_dot();
+        //         let sfn_entry = self.create_sfn_entry(dot_sfn, FileAttributes::DIRECTORY, entry.first_cluster());
+        //         dir.write_entry(".", sfn_entry).await?;
+        //         let dotdot_sfn = ShortNameGenerator::generate_dotdot();
+        //         let sfn_entry =
+        //             self.create_sfn_entry(dotdot_sfn, FileAttributes::DIRECTORY, self.stream.first_cluster());
+        //         dir.write_entry("..", sfn_entry).await?;
+        //         Ok(dir)
+        //     }
+        //     // directory already exists - return it
+        //     DirEntryOrShortName::DirEntry(e) => Ok(e.to_dir()),
+        // }
     }
 
     async fn is_empty(&self) -> Result<bool, Error<IO::Error>> {
@@ -382,33 +390,35 @@ where
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub async fn remove(&self, path: &str) -> Result<(), Error<IO::Error>> {
         trace!("Dir::remove {}", path);
-        // traverse path
-        let (name, rest_opt) = split_path(path);
-        if let Some(rest) = rest_opt {
-            let e = self.find_entry(name, Some(true), None)?;
-            return e.to_dir().remove(rest);
-        }
-        // in case of directory check if it is empty
-        let e = self.find_entry(name, None, None)?;
-        if e.is_dir() && !e.to_dir().is_empty()? {
-            return Err(Error::DirectoryIsNotEmpty);
-        }
-        // free data
-        if let Some(n) = e.first_cluster() {
-            self.fs.free_cluster_chain(n)?;
-        }
-        // free long and short name entries
-        let mut stream = self.stream.clone();
-        stream.seek(SeekFrom::Start(e.offset_range.0)).await?;
-        let num = ((e.offset_range.1 - e.offset_range.0) / u64::from(DIR_ENTRY_SIZE)) as usize;
-        for _ in 0..num {
-            let mut data = DirEntryData::deserialize(&mut stream)?;
-            trace!("removing dir entry {:?}", data);
-            data.set_deleted();
-            stream.seek(SeekFrom::Current(-i64::from(DIR_ENTRY_SIZE))).await?;
-            data.serialize(&mut stream)?;
-        }
-        Ok(())
+        todo!();
+        // TODO recursive
+        // // traverse path
+        // let (name, rest_opt) = split_path(path);
+        // if let Some(rest) = rest_opt {
+        //     let e = self.find_entry(name, Some(true), None).await?;
+        //     return e.to_dir().remove(rest).await;
+        // }
+        // // in case of directory check if it is empty
+        // let e = self.find_entry(name, None, None).await?;
+        // if e.is_dir() && !e.to_dir().is_empty().await? {
+        //     return Err(Error::DirectoryIsNotEmpty);
+        // }
+        // // free data
+        // if let Some(n) = e.first_cluster() {
+        //     self.fs.free_cluster_chain(n).await?;
+        // }
+        // // free long and short name entries
+        // let mut stream = self.stream.clone();
+        // stream.seek(SeekFrom::Start(e.offset_range.0)).await?;
+        // let num = ((e.offset_range.1 - e.offset_range.0) / u64::from(DIR_ENTRY_SIZE)) as usize;
+        // for _ in 0..num {
+        //     let mut data = DirEntryData::deserialize(&mut stream)?;
+        //     trace!("removing dir entry {:?}", data);
+        //     data.set_deleted();
+        //     stream.seek(SeekFrom::Current(-i64::from(DIR_ENTRY_SIZE))).await?;
+        //     data.serialize(&mut stream)?;
+        // }
+        // Ok(())
     }
 
     /// Renames or moves existing file or directory.
@@ -427,35 +437,37 @@ where
     ///   stripped from the last component does not point to an existing directory.
     /// * `Error::AlreadyExists` will be returned if `dst_path` points to an existing directory entry.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
-    pub async fn rename(&self, src_path: &str, dst_dir: &Dir<IO, TP, OCC>, dst_path: &str) -> Result<(), Error<IO::Error>> {
+    pub async fn rename(&self, src_path: &str, _dst_dir: &Dir<'_, IO, TP, OCC>, dst_path: &str) -> Result<(), Error<IO::Error>> {
         trace!("Dir::rename {} {}", src_path, dst_path);
-        // traverse source path
-        let (src_name, src_rest_opt) = split_path(src_path);
-        if let Some(rest) = src_rest_opt {
-            let e = self.find_entry(src_name, Some(true), None)?;
-            return e.to_dir().rename(rest, dst_dir, dst_path);
-        }
-        // traverse destination path
-        let (dst_name, dst_rest_opt) = split_path(dst_path);
-        if let Some(rest) = dst_rest_opt {
-            let e = dst_dir.find_entry(dst_name, Some(true), None)?;
-            return self.rename(src_path, &e.to_dir(), rest);
-        }
-        // move/rename file
-        self.rename_internal(src_path, dst_dir, dst_path)
+        todo!();
+        // TODO make this not recursive
+        // // traverse source path
+        // let (src_name, src_rest_opt) = split_path(src_path);
+        // if let Some(rest) = src_rest_opt {
+        //     let e = self.find_entry(src_name, Some(true), None).await?;
+        //     return e.to_dir().rename(rest, dst_dir, dst_path).await;
+        // }
+        // // traverse destination path
+        // let (dst_name, dst_rest_opt) = split_path(dst_path);
+        // if let Some(rest) = dst_rest_opt {
+        //     let e = dst_dir.find_entry(dst_name, Some(true), None).await?;
+        //     return self.rename(src_path, &e.to_dir(), rest).await;
+        // }
+        // // move/rename file
+        // self.rename_internal(src_path, dst_dir, dst_path).await
     }
 
-    fn rename_internal(
+    async fn rename_internal(
         &self,
         src_name: &str,
-        dst_dir: &Dir<IO, TP, OCC>,
+        dst_dir: &Dir<'_, IO, TP, OCC>,
         dst_name: &str,
     ) -> Result<(), Error<IO::Error>> {
         trace!("Dir::rename_internal {} {}", src_name, dst_name);
         // find existing file
-        let e = self.find_entry(src_name, None, None)?;
+        let e = self.find_entry(src_name, None, None).await?;
         // check if destionation filename is unused
-        let r = dst_dir.check_for_existence(dst_name, None)?;
+        let r = dst_dir.check_for_existence(dst_name, None).await?;
         let short_name = match r {
             // destination file already exist
             DirEntryOrShortName::DirEntry(ref dst_e) => {
@@ -475,11 +487,11 @@ where
         stream.seek(SeekFrom::Start(e.offset_range.0)).await?;
         let num = ((e.offset_range.1 - e.offset_range.0) / u64::from(DIR_ENTRY_SIZE)) as usize;
         for _ in 0..num {
-            let mut data = DirEntryData::deserialize(&mut stream)?;
+            let mut data = DirEntryData::deserialize(&mut stream).await?;
             trace!("removing LFN entry {:?}", data);
             data.set_deleted();
             stream.seek(SeekFrom::Current(-i64::from(DIR_ENTRY_SIZE))).await?;
-            data.serialize(&mut stream)?;
+            data.serialize(&mut stream).await?;
         }
         // save new directory entry
         let sfn_entry = e.data.renamed(short_name);
@@ -493,7 +505,7 @@ where
         let mut num_free: u32 = 0;
         let mut i: u32 = 0;
         loop {
-            let raw_entry = DirEntryData::deserialize(&mut stream)?;
+            let raw_entry = DirEntryData::deserialize(&mut stream).await?;
             if raw_entry.is_end() {
                 // first unused entry - all remaining space can be used
                 if num_free == 0 {
@@ -558,11 +570,11 @@ where
         let lfn_iter = LfnEntriesGenerator::new(lfn_utf16.as_ucs2_units(), lfn_chsum);
         // find space for new entries (multiple LFN entries and 1 SFN entry)
         let num_entries = lfn_iter.len() as u32 + 1;
-        let mut stream = self.find_free_entries(num_entries)?;
+        let mut stream = self.find_free_entries(num_entries).await?;
         let start_pos = stream.seek(io::SeekFrom::Current(0)).await?;
         // write LFN entries before SFN entry
         for lfn_entry in lfn_iter {
-            lfn_entry.serialize(&mut stream)?;
+            lfn_entry.serialize(&mut stream).await?;
         }
         Ok((stream, start_pos))
     }
@@ -580,7 +592,7 @@ where
         // write LFN entries
         let (mut stream, start_pos) = self.alloc_and_write_lfn_entries(&lfn_utf16, raw_entry.name()).await?;
         // write short name entry
-        raw_entry.serialize(&mut stream)?;
+        raw_entry.serialize(&mut stream).await?;
         // Get position directory stream after entries were written
         let end_pos = stream.seek(io::SeekFrom::Current(0)).await?;
         // Get current absolute position on the storage
@@ -666,7 +678,7 @@ where
         let mut offset = self.stream.seek(SeekFrom::Current(0)).await?;
         let mut begin_offset = offset;
         loop {
-            let raw_entry = DirEntryData::deserialize(&mut self.stream)?;
+            let raw_entry = DirEntryData::deserialize(&mut self.stream).await?;
             offset += u64::from(DIR_ENTRY_SIZE);
             // Check if this is end of dir
             if raw_entry.is_end() {
@@ -736,18 +748,20 @@ where
     type Item = Result<DirEntry<'a, IO, TP, OCC>, Error<IO::Error>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.err {
-            return None;
-        }
-        let r = self.read_dir_entry().await;
-        match r {
-            Ok(Some(e)) => Some(Ok(e)),
-            Ok(None) => None,
-            Err(err) => {
-                self.err = true;
-                Some(Err(err))
-            }
-        }
+        todo!()
+        // TODO iter
+        // if self.err {
+        //     return None;
+        // }
+        // let r = self.read_dir_entry().await;
+        // match r {
+        //     Ok(Some(e)) => Some(Ok(e)),
+        //     Ok(None) => None,
+        //     Err(err) => {
+        //         self.err = true;
+        //         Some(Err(err))
+        //     }
+        // }
     }
 }
 

@@ -27,42 +27,42 @@ enum FatValue {
 }
 
 trait FatTrait {
-    fn get_raw<S, E>(fat: &mut S, cluster: u32) -> Result<u32, Error<E>>
+    async fn get_raw<S, E>(fat: &mut S, cluster: u32) -> Result<u32, Error<E>>
     where
         S: Read + Seek + IoBase,
         E: IoError,
         Error<E>: From<S::Error>,
         S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>;
 
-    fn get<S, E>(fat: &mut S, cluster: u32) -> Result<FatValue, Error<E>>
+    async fn get<S, E>(fat: &mut S, cluster: u32) -> Result<FatValue, Error<E>>
     where
         S: Read + Seek,
         E: IoError,
         Error<E>: From<S::Error>,
         S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>;
 
-    fn set_raw<S, E>(fat: &mut S, cluster: u32, raw_value: u32) -> Result<(), Error<E>>
+    async fn set_raw<S, E>(fat: &mut S, cluster: u32, raw_value: u32) -> Result<(), Error<E>>
     where
         S: Read + Write + Seek,
         E: IoError,
         Error<E>: From<S::Error>,
         S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>;
 
-    fn set<S, E>(fat: &mut S, cluster: u32, value: FatValue) -> Result<(), Error<E>>
+    async fn set<S, E>(fat: &mut S, cluster: u32, value: FatValue) -> Result<(), Error<E>>
     where
         S: Read + Write + Seek,
         E: IoError,
         Error<E>: From<S::Error>,
         S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>;
 
-    fn find_free<S, E>(fat: &mut S, start_cluster: u32, end_cluster: u32) -> Result<u32, Error<E>>
+    async fn find_free<S, E>(fat: &mut S, start_cluster: u32, end_cluster: u32) -> Result<u32, Error<E>>
     where
         S: Read + Seek,
         E: IoError,
         Error<E>: From<S::Error>,
         S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>;
 
-    fn count_free<S, E>(fat: &mut S, end_cluster: u32) -> Result<u32, Error<E>>
+    async fn count_free<S, E>(fat: &mut S, end_cluster: u32) -> Result<u32, Error<E>>
     where
         S: Read + Seek,
         E: IoError,
@@ -70,7 +70,7 @@ trait FatTrait {
         S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>;
 }
 
-fn read_fat<S, E>(fat: &mut S, fat_type: FatType, cluster: u32) -> Result<FatValue, Error<E>>
+async fn read_fat<S, E>(fat: &mut S, fat_type: FatType, cluster: u32) -> Result<FatValue, Error<E>>
 where
     S: Read + Seek,
     E: IoError,
@@ -78,13 +78,13 @@ where
     S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
 {
     match fat_type {
-        FatType::Fat12 => Fat12::get(fat, cluster),
-        FatType::Fat16 => Fat16::get(fat, cluster),
-        FatType::Fat32 => Fat32::get(fat, cluster),
+        FatType::Fat12 => Fat12::get(fat, cluster).await,
+        FatType::Fat16 => Fat16::get(fat, cluster).await,
+        FatType::Fat32 => Fat32::get(fat, cluster).await,
     }
 }
 
-fn write_fat<S, E>(fat: &mut S, fat_type: FatType, cluster: u32, value: FatValue) -> Result<(), Error<E>>
+async fn write_fat<S, E>(fat: &mut S, fat_type: FatType, cluster: u32, value: FatValue) -> Result<(), Error<E>>
 where
     S: Read + Write + Seek,
     E: IoError,
@@ -93,27 +93,27 @@ where
 {
     trace!("write FAT - cluster {} value {:?}", cluster, value);
     match fat_type {
-        FatType::Fat12 => Fat12::set(fat, cluster, value),
-        FatType::Fat16 => Fat16::set(fat, cluster, value),
-        FatType::Fat32 => Fat32::set(fat, cluster, value),
+        FatType::Fat12 => Fat12::set(fat, cluster, value).await,
+        FatType::Fat16 => Fat16::set(fat, cluster, value).await,
+        FatType::Fat32 => Fat32::set(fat, cluster, value).await,
     }
 }
 
-fn get_next_cluster<S, E>(fat: &mut S, fat_type: FatType, cluster: u32) -> Result<Option<u32>, Error<E>>
+async fn get_next_cluster<S, E>(fat: &mut S, fat_type: FatType, cluster: u32) -> Result<Option<u32>, Error<E>>
 where
     S: Read + Seek,
     E: IoError,
     Error<E>: From<S::Error>,
     S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
 {
-    let val = read_fat(fat, fat_type, cluster)?;
+    let val = read_fat(fat, fat_type, cluster).await?;
     match val {
         FatValue::Data(n) => Ok(Some(n)),
         _ => Ok(None),
     }
 }
 
-fn find_free_cluster<S, E>(
+async fn find_free_cluster<S, E>(
     fat: &mut S,
     fat_type: FatType,
     start_cluster: u32,
@@ -126,13 +126,13 @@ where
     S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
 {
     match fat_type {
-        FatType::Fat12 => Fat12::find_free(fat, start_cluster, end_cluster),
-        FatType::Fat16 => Fat16::find_free(fat, start_cluster, end_cluster),
-        FatType::Fat32 => Fat32::find_free(fat, start_cluster, end_cluster),
+        FatType::Fat12 => Fat12::find_free(fat, start_cluster, end_cluster).await,
+        FatType::Fat16 => Fat16::find_free(fat, start_cluster, end_cluster).await,
+        FatType::Fat32 => Fat32::find_free(fat, start_cluster, end_cluster).await,
     }
 }
 
-pub(crate) fn alloc_cluster<S, E>(
+pub(crate) async fn alloc_cluster<S, E>(
     fat: &mut S,
     fat_type: FatType,
     prev_cluster: Option<u32>,
@@ -150,22 +150,22 @@ where
         Some(n) if n < end_cluster => n,
         _ => RESERVED_FAT_ENTRIES,
     };
-    let new_cluster = match find_free_cluster(fat, fat_type, start_cluster, end_cluster) {
+    let new_cluster = match find_free_cluster(fat, fat_type, start_cluster, end_cluster).await {
         Ok(n) => n,
         Err(_) if start_cluster > RESERVED_FAT_ENTRIES => {
-            find_free_cluster(fat, fat_type, RESERVED_FAT_ENTRIES, start_cluster)?
+            find_free_cluster(fat, fat_type, RESERVED_FAT_ENTRIES, start_cluster).await?
         }
         Err(e) => return Err(e),
     };
-    write_fat(fat, fat_type, new_cluster, FatValue::EndOfChain)?;
+    write_fat(fat, fat_type, new_cluster, FatValue::EndOfChain).await?;
     if let Some(n) = prev_cluster {
-        write_fat(fat, fat_type, n, FatValue::Data(new_cluster))?;
+        write_fat(fat, fat_type, n, FatValue::Data(new_cluster)).await?;
     }
     trace!("allocated cluster {}", new_cluster);
     Ok(new_cluster)
 }
 
-pub(crate) fn read_fat_flags<S, E>(fat: &mut S, fat_type: FatType) -> Result<FsStatusFlags, Error<E>>
+pub(crate) async fn read_fat_flags<S, E>(fat: &mut S, fat_type: FatType) -> Result<FsStatusFlags, Error<E>>
 where
     S: Read + Seek,
     E: IoError,
@@ -175,8 +175,8 @@ where
     // check MSB (except in FAT12)
     let val = match fat_type {
         FatType::Fat12 => 0xFFF,
-        FatType::Fat16 => Fat16::get_raw(fat, 1)?,
-        FatType::Fat32 => Fat32::get_raw(fat, 1)?,
+        FatType::Fat16 => Fat16::get_raw(fat, 1).await?,
+        FatType::Fat32 => Fat32::get_raw(fat, 1).await?,
     };
     let dirty = match fat_type {
         FatType::Fat12 => false,
@@ -191,7 +191,7 @@ where
     Ok(FsStatusFlags { dirty, io_error })
 }
 
-pub(crate) fn count_free_clusters<S, E>(fat: &mut S, fat_type: FatType, total_clusters: u32) -> Result<u32, Error<E>>
+pub(crate) async fn count_free_clusters<S, E>(fat: &mut S, fat_type: FatType, total_clusters: u32) -> Result<u32, Error<E>>
 where
     S: Read + Seek,
     E: IoError,
@@ -200,13 +200,13 @@ where
 {
     let end_cluster = total_clusters + RESERVED_FAT_ENTRIES;
     match fat_type {
-        FatType::Fat12 => Fat12::count_free(fat, end_cluster),
-        FatType::Fat16 => Fat16::count_free(fat, end_cluster),
-        FatType::Fat32 => Fat32::count_free(fat, end_cluster),
+        FatType::Fat12 => Fat12::count_free(fat, end_cluster).await,
+        FatType::Fat16 => Fat16::count_free(fat, end_cluster).await,
+        FatType::Fat32 => Fat32::count_free(fat, end_cluster).await,
     }
 }
 
-pub(crate) fn format_fat<S, E>(
+pub(crate) async fn format_fat<S, E>(
     fat: &mut S,
     fat_type: FatType,
     media: u8,
@@ -239,20 +239,20 @@ where
     let start_cluster = total_clusters + RESERVED_FAT_ENTRIES;
     let end_cluster = (bytes_per_fat * BITS_PER_BYTE / u64::from(fat_type.bits_per_fat_entry())) as u32;
     for cluster in start_cluster..end_cluster {
-        write_fat(fat, fat_type, cluster, FatValue::EndOfChain)?;
+        write_fat(fat, fat_type, cluster, FatValue::EndOfChain).await?;
     }
     // mark special entries 0x0FFFFFF0 - 0x0FFFFFFF as BAD if they exists on FAT32 volume
     if end_cluster > 0x0FFF_FFF0 {
         let end_bad_cluster = cmp::min(0x0FFF_FFFF + 1, end_cluster);
         for cluster in 0x0FFF_FFF0..end_bad_cluster {
-            write_fat(fat, fat_type, cluster, FatValue::Bad)?;
+            write_fat(fat, fat_type, cluster, FatValue::Bad).await?;
         }
     }
     Ok(())
 }
 
 impl FatTrait for Fat12 {
-    fn get_raw<S, E>(fat: &mut S, cluster: u32) -> Result<u32, Error<E>>
+    async fn get_raw<S, E>(fat: &mut S, cluster: u32) -> Result<u32, Error<E>>
     where
         S: Read + Seek,
         E: IoError,
@@ -268,14 +268,14 @@ impl FatTrait for Fat12 {
         }))
     }
 
-    fn get<S, E>(fat: &mut S, cluster: u32) -> Result<FatValue, Error<E>>
+    async fn get<S, E>(fat: &mut S, cluster: u32) -> Result<FatValue, Error<E>>
     where
         S: Read + Seek,
         E: IoError,
         Error<E>: From<S::Error>,
         S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
     {
-        let val = Self::get_raw(fat, cluster)?;
+        let val = Self::get_raw(fat, cluster).await?;
         Ok(match val {
             0 => FatValue::Free,
             0xFF7 => FatValue::Bad,
@@ -284,7 +284,7 @@ impl FatTrait for Fat12 {
         })
     }
 
-    fn set<S, E>(fat: &mut S, cluster: u32, value: FatValue) -> Result<(), Error<E>>
+    async fn set<S, E>(fat: &mut S, cluster: u32, value: FatValue) -> Result<(), Error<E>>
     where
         S: Read + Write + Seek,
         E: IoError,
@@ -297,10 +297,10 @@ impl FatTrait for Fat12 {
             FatValue::EndOfChain => 0xFFF,
             FatValue::Data(n) => n,
         };
-        Self::set_raw(fat, cluster, raw_val)
+        Self::set_raw(fat, cluster, raw_val).await
     }
 
-    fn set_raw<S, E>(fat: &mut S, cluster: u32, raw_val: u32) -> Result<(), Error<E>>
+    async fn set_raw<S, E>(fat: &mut S, cluster: u32, raw_val: u32) -> Result<(), Error<E>>
     where
         S: Read + Write + Seek + IoBase,
         E: IoError,
@@ -319,7 +319,7 @@ impl FatTrait for Fat12 {
         Ok(())
     }
 
-    fn find_free<S, E>(fat: &mut S, start_cluster: u32, end_cluster: u32) -> Result<u32, Error<E>>
+    async fn find_free<S, E>(fat: &mut S, start_cluster: u32, end_cluster: u32) -> Result<u32, Error<E>>
     where
         S: Read + Seek,
         E: IoError,
@@ -351,7 +351,7 @@ impl FatTrait for Fat12 {
         }
     }
 
-    fn count_free<S, E>(fat: &mut S, end_cluster: u32) -> Result<u32, Error<E>>
+    async fn count_free<S, E>(fat: &mut S, end_cluster: u32) -> Result<u32, Error<E>>
     where
         S: Read + Seek,
         E: IoError,
@@ -386,7 +386,7 @@ impl FatTrait for Fat12 {
 }
 
 impl FatTrait for Fat16 {
-    fn get_raw<S, E>(fat: &mut S, cluster: u32) -> Result<u32, Error<E>>
+    async fn get_raw<S, E>(fat: &mut S, cluster: u32) -> Result<u32, Error<E>>
     where
         S: Read + Seek,
         E: IoError,
@@ -397,14 +397,14 @@ impl FatTrait for Fat16 {
         Ok(u32::from(fat.read_u16_le().await?))
     }
 
-    fn get<S, E>(fat: &mut S, cluster: u32) -> Result<FatValue, Error<E>>
+    async fn get<S, E>(fat: &mut S, cluster: u32) -> Result<FatValue, Error<E>>
     where
         S: Read + Seek,
         E: IoError,
         Error<E>: From<S::Error>,
         S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
     {
-        let val = Self::get_raw(fat, cluster)?;
+        let val = Self::get_raw(fat, cluster).await?;
         Ok(match val {
             0 => FatValue::Free,
             0xFFF7 => FatValue::Bad,
@@ -413,7 +413,7 @@ impl FatTrait for Fat16 {
         })
     }
 
-    fn set<S, E>(fat: &mut S, cluster: u32, value: FatValue) -> Result<(), Error<E>>
+    async fn set<S, E>(fat: &mut S, cluster: u32, value: FatValue) -> Result<(), Error<E>>
     where
         S: Read + Write + Seek,
         E: IoError,
@@ -426,10 +426,10 @@ impl FatTrait for Fat16 {
             FatValue::EndOfChain => 0xFFFF,
             FatValue::Data(n) => n,
         };
-        Self::set_raw(fat, cluster, raw_value)
+        Self::set_raw(fat, cluster, raw_value).await
     }
 
-    fn find_free<S, E>(fat: &mut S, start_cluster: u32, end_cluster: u32) -> Result<u32, Error<E>>
+    async fn find_free<S, E>(fat: &mut S, start_cluster: u32, end_cluster: u32) -> Result<u32, Error<E>>
     where
         S: Read + Seek,
         E: IoError,
@@ -448,7 +448,7 @@ impl FatTrait for Fat16 {
         Err(Error::NotEnoughSpace)
     }
 
-    fn count_free<S, E>(fat: &mut S, end_cluster: u32) -> Result<u32, Error<E>>
+    async fn count_free<S, E>(fat: &mut S, end_cluster: u32) -> Result<u32, Error<E>>
     where
         S: Read + Seek,
         E: IoError,
@@ -468,7 +468,7 @@ impl FatTrait for Fat16 {
         Ok(count)
     }
 
-    fn set_raw<S, E>(fat: &mut S, cluster: u32, raw_value: u32) -> Result<(), Error<E>>
+    async fn set_raw<S, E>(fat: &mut S, cluster: u32, raw_value: u32) -> Result<(), Error<E>>
     where
         S: Read + Write + Seek,
         E: IoError,
@@ -482,7 +482,7 @@ impl FatTrait for Fat16 {
 }
 
 impl FatTrait for Fat32 {
-    fn get_raw<S, E>(fat: &mut S, cluster: u32) -> Result<u32, Error<E>>
+    async fn get_raw<S, E>(fat: &mut S, cluster: u32) -> Result<u32, Error<E>>
     where
         S: Read + Seek,
         E: IoError,
@@ -493,14 +493,14 @@ impl FatTrait for Fat32 {
         Ok(fat.read_u32_le().await?)
     }
 
-    fn get<S, E>(fat: &mut S, cluster: u32) -> Result<FatValue, Error<E>>
+    async fn get<S, E>(fat: &mut S, cluster: u32) -> Result<FatValue, Error<E>>
     where
         S: Read + Seek,
         E: IoError,
         Error<E>: From<S::Error>,
         S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
     {
-        let val = Self::get_raw(fat, cluster)? & 0x0FFF_FFFF;
+        let val = Self::get_raw(fat, cluster).await? & 0x0FFF_FFFF;
         Ok(match val {
             0 if (0x0FFF_FFF7..=0x0FFF_FFFF).contains(&cluster) => {
                 let tmp = if cluster == 0x0FFF_FFF7 {
@@ -530,14 +530,14 @@ impl FatTrait for Fat32 {
         })
     }
 
-    fn set<S, E>(fat: &mut S, cluster: u32, value: FatValue) -> Result<(), Error<E>>
+    async fn set<S, E>(fat: &mut S, cluster: u32, value: FatValue) -> Result<(), Error<E>>
     where
         S: Read + Write + Seek,
         E: IoError,
         Error<E>: From<S::Error>,
         S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
     {
-        let old_reserved_bits = Self::get_raw(fat, cluster)? & 0xF000_0000;
+        let old_reserved_bits = Self::get_raw(fat, cluster).await? & 0xF000_0000;
 
         if value == FatValue::Free && (0x0FFF_FFF7..=0x0FFF_FFFF).contains(&cluster) {
             // NOTE: it is technically allowed for them to store FAT chain loops,
@@ -560,10 +560,10 @@ impl FatTrait for Fat32 {
             FatValue::Data(n) => n,
         };
         let raw_val = raw_val | old_reserved_bits; // must preserve original reserved values
-        Self::set_raw(fat, cluster, raw_val)
+        Self::set_raw(fat, cluster, raw_val).await
     }
 
-    fn find_free<S, E>(fat: &mut S, start_cluster: u32, end_cluster: u32) -> Result<u32, Error<E>>
+    async fn find_free<S, E>(fat: &mut S, start_cluster: u32, end_cluster: u32) -> Result<u32, Error<E>>
     where
         S: Read + Seek,
         E: IoError,
@@ -582,7 +582,7 @@ impl FatTrait for Fat32 {
         Err(Error::NotEnoughSpace)
     }
 
-    fn count_free<S, E>(fat: &mut S, end_cluster: u32) -> Result<u32, Error<E>>
+    async fn count_free<S, E>(fat: &mut S, end_cluster: u32) -> Result<u32, Error<E>>
     where
         S: Read + Seek,
         E: IoError,
@@ -602,7 +602,7 @@ impl FatTrait for Fat32 {
         Ok(count)
     }
 
-    fn set_raw<S, E>(fat: &mut S, cluster: u32, raw_value: u32) -> Result<(), Error<E>>
+    async fn set_raw<S, E>(fat: &mut S, cluster: u32, raw_value: u32) -> Result<(), Error<E>>
     where
         S: Read + Write + Seek,
         E: IoError,
@@ -644,24 +644,24 @@ where
         }
     }
 
-    pub(crate) fn truncate(&mut self) -> Result<u32, Error<E>> {
+    pub(crate) async fn truncate(&mut self) -> Result<u32, Error<E>> {
         if let Some(n) = self.cluster {
             // Move to the next cluster
             self.next();
             // Mark previous cluster as end of chain
-            write_fat(self.fat.borrow_mut(), self.fat_type, n, FatValue::EndOfChain)?;
+            write_fat(self.fat.borrow_mut(), self.fat_type, n, FatValue::EndOfChain).await?;
             // Free rest of chain
-            self.free()
+            self.free().await
         } else {
             Ok(0)
         }
     }
 
-    pub(crate) fn free(&mut self) -> Result<u32, Error<E>> {
+    pub(crate) async fn free(&mut self) -> Result<u32, Error<E>> {
         let mut num_free = 0;
         while let Some(n) = self.cluster {
             self.next();
-            write_fat(self.fat.borrow_mut(), self.fat_type, n, FatValue::Free)?;
+            write_fat(self.fat.borrow_mut(), self.fat_type, n, FatValue::Free).await?;
             num_free += 1;
         }
         Ok(num_free)
@@ -679,19 +679,21 @@ where
     type Item = Result<u32, Error<E>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.err {
-            return None;
-        }
-        if let Some(current_cluster) = self.cluster {
-            self.cluster = match get_next_cluster(self.fat.borrow_mut(), self.fat_type, current_cluster) {
-                Ok(next_cluster) => next_cluster,
-                Err(err) => {
-                    self.err = true;
-                    return Some(Err(err));
-                }
-            }
-        }
-        self.cluster.map(Ok)
+        todo!()
+        // TODO iter
+        // if self.err {
+        //     return None;
+        // }
+        // if let Some(current_cluster) = self.cluster {
+        //     self.cluster = match get_next_cluster(self.fat.borrow_mut(), self.fat_type, current_cluster).await {
+        //         Ok(next_cluster) => next_cluster,
+        //         Err(err) => {
+        //             self.err = true;
+        //             return Some(Err(err));
+        //         }
+        //     }
+        // }
+        // self.cluster.map(Ok)
     }
 }
 

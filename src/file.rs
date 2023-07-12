@@ -82,11 +82,11 @@ where
         if let Some(current_cluster) = self.current_cluster {
             // current cluster is none only if offset is 0
             debug_assert!(self.offset > 0);
-            self.fs.truncate_cluster_chain(current_cluster)
+            self.fs.truncate_cluster_chain(current_cluster).await
         } else {
             debug_assert!(self.offset == 0);
             if let Some(n) = self.first_cluster {
-                self.fs.free_cluster_chain(n)?;
+                self.fs.free_cluster_chain(n).await?;
                 self.first_cluster = None;
             }
             Ok(())
@@ -151,7 +151,7 @@ where
 
     async fn flush_dir_entry(&mut self) -> Result<(), Error<IO::Error>> {
         if let Some(ref mut e) = self.entry {
-            e.flush(self.fs)?;
+            e.flush(self.fs).await?;
         }
         Ok(())
     }
@@ -220,9 +220,9 @@ where
     }
 
     async fn flush(&mut self) -> Result<(), Error<IO::Error>> {
-        self.flush_dir_entry()?;
+        self.flush_dir_entry().await?;
         let mut disk = self.fs.disk.borrow_mut();
-        disk.flush()?;
+        disk.flush().await?;
         Ok(())
     }
 }
@@ -508,7 +508,7 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> std::io::Seek for File<'_, IO, TP
 where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
-    fn.seek(&mut self, pos: std::io::SeekFrom).await -> std::io::Result<u64> {
-        Ok(Seek:.seek(self, crate::StdSeekPosWrapper::from(pos).into()).unwrap()).await // TODO handle
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        Ok(Seek::seek(self, crate::StdSeekPosWrapper::from(pos).into()).unwrap()).await // TODO handle
     }
 }

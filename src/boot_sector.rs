@@ -96,7 +96,7 @@ impl BiosParameterBlock {
         Ok(bpb)
     }
 
-    fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error>
+    async fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error>
     where
         W::Error: From<WriteAllError<W::Error>>,
     {
@@ -428,7 +428,7 @@ pub(crate) struct BootSector {
 }
 
 impl BootSector {
-    pub(crate) fn deserialize<R: Read>(rdr: &mut R) -> Result<Self, R::Error>
+    pub(crate) async fn deserialize<R: Read>(rdr: &mut R) -> Result<Self, R::Error>
     where
         R::Error: From<ReadExactError<R::Error>>,
     {
@@ -446,13 +446,13 @@ impl BootSector {
         Ok(boot)
     }
 
-    pub(crate) fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error>
+    pub(crate) async fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error>
     where
         W::Error: From<WriteAllError<W::Error>>,
     {
         wrt.write_all(&self.bootjmp).await?;
         wrt.write_all(&self.oem_name).await?;
-        self.bpb.serialize(&mut *wrt)?;
+        self.bpb.serialize(&mut *wrt).await?;
 
         if self.bpb.is_fat32() {
             wrt.write_all(&self.boot_code[0..420]).await?;

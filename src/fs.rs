@@ -141,7 +141,7 @@ impl FsInfoSector {
     const STRUC_SIG: u32 = 0x6141_7272;
     const TRAIL_SIG: u32 = 0xAA55_0000;
 
-    fn deserialize<R: Read>(rdr: &mut R) -> Result<Self, Error<R::Error>>
+    async fn deserialize<R: Read>(rdr: &mut R) -> Result<Self, Error<R::Error>>
     where
         Error<<R as IoBase>::Error>: From<ReadExactError<<R as IoBase>::Error>>,
         <R as IoBase>::Error: From<ReadExactError<<R as IoBase>::Error>>,
@@ -186,7 +186,7 @@ impl FsInfoSector {
         })
     }
 
-    fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), Error<W::Error>>
+    async fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), Error<W::Error>>
     where
         Error<W::Error>: From<ReadExactError<W::Error>> + From<WriteAllError<W::Error>>,
         W::Error: From<WriteAllError<W::Error>> + From<ReadExactError<W::Error>>,
@@ -396,7 +396,7 @@ where
 
         // read boot sector
         let bpb = {
-            let boot = BootSector::deserialize(&mut disk)?;
+            let boot = BootSector::deserialize(&mut disk).await?;
             boot.validate()?;
             boot.bpb
         };
@@ -409,7 +409,7 @@ where
         // read FSInfo sector if this is FAT32
         let mut fs_info = if fat_type == FatType::Fat32 {
             disk.seek(SeekFrom::Start(bpb.bytes_from_sectors(bpb.fs_info_sector()))).await?;
-            FsInfoSector::deserialize(&mut disk)?
+            FsInfoSector::deserialize(&mut disk).await?
         } else {
             FsInfoSector::default()
         };
@@ -501,7 +501,7 @@ where
 
     pub(crate) async fn truncate_cluster_chain(&self, cluster: u32) -> Result<(), Error<IO::Error>> {
         let mut iter = self.cluster_iter(cluster);
-        let num_free = iter.truncate()?;
+        let num_free = iter.truncate().await?;
         let mut fs_info = self.fs_info.borrow_mut();
         fs_info.map_free_clusters(|n| n + num_free);
         Ok(())
@@ -509,7 +509,7 @@ where
 
     pub(crate) async fn free_cluster_chain(&self, cluster: u32) -> Result<(), Error<IO::Error>> {
         let mut iter = self.cluster_iter(cluster);
-        let num_free = iter.free()?;
+        let num_free = iter.free().await?;
         let mut fs_info = self.fs_info.borrow_mut();
         fs_info.map_free_clusters(|n| n + num_free);
         Ok(())
@@ -520,12 +520,12 @@ where
         let hint = self.fs_info.borrow().next_free_cluster;
         let cluster = {
             let mut fat = self.fat_slice();
-            alloc_cluster(&mut fat, self.fat_type, prev_cluster, hint, self.total_clusters)?
+            alloc_cluster(&mut fat, self.fat_type, prev_cluster, hint, self.total_clusters).await?
         };
         if zero {
             let mut disk = self.disk.borrow_mut();
             disk.seek(SeekFrom::Start(self.offset_from_cluster(cluster))).await?;
-            write_zeros(&mut *disk, u64::from(self.cluster_size()))?;
+            write_zeros(&mut *disk, u64::from(self.cluster_size())).await?;
         }
         let mut fs_info = self.fs_info.borrow_mut();
         fs_info.set_next_free_cluster(cluster + 1);
@@ -540,7 +540,7 @@ where
     /// `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub async fn read_status_flags(&self) -> Result<FsStatusFlags, Error<IO::Error>> {
         let bpb_status = self.bpb.status_flags();
-        let fat_status = read_fat_flags(&mut self.fat_slice(), self.fat_type)?;
+        let fat_status = read_fat_flags(&mut self.fat_slice(), self.fat_type).await?;
         Ok(FsStatusFlags {
             dirty: bpb_status.dirty || fat_status.dirty,
             io_error: bpb_status.io_error || fat_status.io_error,
@@ -572,7 +572,7 @@ where
     /// Forces free clusters recalculation.
     async fn recalc_free_clusters(&self) -> Result<u32, Error<IO::Error>> {
         let mut fat = self.fat_slice();
-        let free_cluster_count = count_free_clusters(&mut fat, self.fat_type, self.total_clusters)?;
+        let free_cluster_count = count_free_clusters(&mut fat, self.fat_type, self.total_clusters).await?;
         self.fs_info.borrow_mut().set_free_cluster_count(free_cluster_count);
         Ok(free_cluster_count)
     }
@@ -600,7 +600,7 @@ where
             let mut disk = self.disk.borrow_mut();
             let fs_info_sector_offset = self.offset_from_sector(u32::from(self.bpb.fs_info_sector));
             disk.seek(SeekFrom::Start(fs_info_sector_offset)).await?;
-            fs_info.serialize(&mut *disk)?;
+            fs_info.serialize(&mut *disk).await?;
             fs_info.dirty = false;
         }
         Ok(())
@@ -626,7 +626,7 @@ where
         };
         let mut disk = self.disk.borrow_mut();
         disk.seek(io::SeekFrom::Start(offset)).await?;
-        disk.write_u8(encoded).await;
+        disk.write_u8(encoded).await?;
         self.current_status_flags.set(flags);
         Ok(())
     }
@@ -962,7 +962,7 @@ impl OemCpConverter for LossyOemCpConverter {
     }
 }
 
-pub(crate) fn write_zeros<IO: ReadWriteSeek>(disk: &mut IO, mut len: u64) -> Result<(), IO::Error>
+pub(crate) async fn write_zeros<IO: ReadWriteSeek>(disk: &mut IO, mut len: u64) -> Result<(), IO::Error>
 where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
@@ -975,14 +975,14 @@ where
     Ok(())
 }
 
-fn write_zeros_until_end_of_sector<IO: ReadWriteSeek>(disk: &mut IO, bytes_per_sector: u16) -> Result<(), IO::Error>
+async fn write_zeros_until_end_of_sector<IO: ReadWriteSeek>(disk: &mut IO, bytes_per_sector: u16) -> Result<(), IO::Error>
 where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
     let pos = disk.seek(SeekFrom::Current(0)).await?;
     let total_bytes_to_write = u64::from(bytes_per_sector) - (pos % u64::from(bytes_per_sector));
     if total_bytes_to_write != u64::from(bytes_per_sector) {
-        write_zeros(disk, total_bytes_to_write)?;
+        write_zeros(disk, total_bytes_to_write).await?;
     }
     Ok(())
 }
@@ -1206,10 +1206,10 @@ where
     if boot.validate::<S::Error>().is_err() {
         return Err(Error::InvalidInput);
     }
-    boot.serialize(storage)?;
+    boot.serialize(storage).await?;
     // Make sure entire logical sector is updated (serialize method always writes 512 bytes)
     let bytes_per_sector = boot.bpb.bytes_per_sector;
-    write_zeros_until_end_of_sector(storage, bytes_per_sector)?;
+    write_zeros_until_end_of_sector(storage, bytes_per_sector).await?;
 
     let bpb = &boot.bpb;
     if bpb.is_fat32() {
@@ -1220,13 +1220,13 @@ where
             dirty: false,
         };
         storage.seek(SeekFrom::Start(bpb.bytes_from_sectors(bpb.fs_info_sector()))).await?;
-        fs_info_sector.serialize(storage)?;
-        write_zeros_until_end_of_sector(storage, bytes_per_sector)?;
+        fs_info_sector.serialize(storage).await?;
+        write_zeros_until_end_of_sector(storage, bytes_per_sector).await?;
 
         // backup boot sector
         storage.seek(SeekFrom::Start(bpb.bytes_from_sectors(bpb.backup_boot_sector()))).await?;
-        boot.serialize(storage)?;
-        write_zeros_until_end_of_sector(storage, bytes_per_sector)?;
+        boot.serialize(storage).await?;
+        write_zeros_until_end_of_sector(storage, bytes_per_sector).await?;
     }
 
     // format File Allocation Table
@@ -1234,12 +1234,12 @@ where
     let fat_pos = bpb.bytes_from_sectors(reserved_sectors);
     let sectors_per_all_fats = bpb.sectors_per_all_fats();
     storage.seek(SeekFrom::Start(fat_pos)).await?;
-    write_zeros(storage, bpb.bytes_from_sectors(sectors_per_all_fats))?;
+    write_zeros(storage, bpb.bytes_from_sectors(sectors_per_all_fats)).await?;
     {
         let mut fat_slice = fat_slice::<S, &mut S>(storage, bpb);
         let sectors_per_fat = bpb.sectors_per_fat();
         let bytes_per_fat = bpb.bytes_from_sectors(sectors_per_fat);
-        format_fat(&mut fat_slice, fat_type, bpb.media, bytes_per_fat, bpb.total_clusters())?;
+        format_fat(&mut fat_slice, fat_type, bpb.media, bytes_per_fat, bpb.total_clusters()).await?;
     }
 
     // init root directory - zero root directory region for FAT12/16 and alloc first root directory cluster for FAT32
@@ -1247,11 +1247,11 @@ where
     let root_dir_sectors = bpb.root_dir_sectors();
     let root_dir_pos = bpb.bytes_from_sectors(root_dir_first_sector);
     storage.seek(SeekFrom::Start(root_dir_pos)).await?;
-    write_zeros(storage, bpb.bytes_from_sectors(root_dir_sectors))?;
+    write_zeros(storage, bpb.bytes_from_sectors(root_dir_sectors)).await?;
     if fat_type == FatType::Fat32 {
         let root_dir_first_cluster = {
             let mut fat_slice = fat_slice::<S, &mut S>(storage, bpb);
-            alloc_cluster(&mut fat_slice, fat_type, None, None, 1)?
+            alloc_cluster(&mut fat_slice, fat_type, None, None, 1).await?
         };
         assert!(root_dir_first_cluster == bpb.root_dir_first_cluster);
         let first_data_sector = reserved_sectors + sectors_per_all_fats + root_dir_sectors;
@@ -1259,14 +1259,14 @@ where
         let fat32_root_dir_first_sector = first_data_sector + data_sectors_before_root_dir;
         let fat32_root_dir_pos = bpb.bytes_from_sectors(fat32_root_dir_first_sector);
         storage.seek(SeekFrom::Start(fat32_root_dir_pos)).await?;
-        write_zeros(storage, u64::from(bpb.cluster_size()))?;
+        write_zeros(storage, u64::from(bpb.cluster_size())).await?;
     }
 
     // Create volume label directory entry if volume label is specified in options
     if let Some(volume_label) = options.volume_label {
         storage.seek(SeekFrom::Start(root_dir_pos)).await?;
         let volume_entry = DirFileEntryData::new(volume_label, FileAttributes::VOLUME_ID);
-        volume_entry.serialize(storage)?;
+        volume_entry.serialize(storage).await?;
     }
 
     storage.seek(SeekFrom::Start(0)).await?;
