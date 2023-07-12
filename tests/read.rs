@@ -54,12 +54,12 @@ fn test_read_seek_short_file(fs: FileSystem) {
     short_file.read_to_end(&mut buf).unwrap();
     assert_eq!(str::from_utf8(&buf).unwrap(), TEST_TEXT);
 
-    assert_eq!(short_file.seek(SeekFrom::Start(5)).unwrap(), 5);
+    assert_eq!(short_file.seek(SeekFrom::Start(5)).unwrap(), 5).await;
     let mut buf2 = [0; 5];
-    short_file.read_exact(&mut buf2).unwrap();
+    short_file.read_exact(&mut buf2).unwrap().await;
     assert_eq!(str::from_utf8(&buf2).unwrap(), &TEST_TEXT[5..10]);
 
-    assert_eq!(short_file.seek(SeekFrom::Start(1000)).unwrap(), TEST_TEXT.len() as u64);
+    assert_eq!(short_file.seek(SeekFrom::Start(1000)).unwrap(), TEST_TEXT.len() as u64).await;
     let mut buf2 = [0; 5];
     assert_eq!(short_file.read(&mut buf2).unwrap(), 0);
 }
@@ -86,10 +86,10 @@ fn test_read_long_file(fs: FileSystem) {
     long_file.read_to_end(&mut buf).unwrap();
     assert_eq!(str::from_utf8(&buf).unwrap(), TEST_TEXT.repeat(1000));
 
-    assert_eq!(long_file.seek(SeekFrom::Start(2017)).unwrap(), 2017);
+    assert_eq!(long_file.seek(SeekFrom::Start(2017)).unwrap(), 2017).await;
     buf.clear();
     let mut buf2 = [0; 10];
-    long_file.read_exact(&mut buf2).unwrap();
+    long_file.read_exact(&mut buf2).unwrap().await;
     assert_eq!(str::from_utf8(&buf2).unwrap(), &TEST_TEXT.repeat(1000)[2017..2027]);
 }
 

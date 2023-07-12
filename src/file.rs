@@ -68,7 +68,7 @@ where
     /// # Panics
     ///
     /// Will panic if this is the root directory.
-    pub fn truncate(&mut self) -> Result<(), Error<IO::Error>> {
+    pub async fn truncate(&mut self) -> Result<(), Error<IO::Error>> {
         trace!("File::truncate");
         if let Some(ref mut e) = self.entry {
             e.set_size(self.offset);
@@ -149,7 +149,7 @@ where
         }
     }
 
-    fn flush_dir_entry(&mut self) -> Result<(), Error<IO::Error>> {
+    async fn flush_dir_entry(&mut self) -> Result<(), Error<IO::Error>> {
         if let Some(ref mut e) = self.entry {
             e.flush(self.fs)?;
         }
@@ -219,7 +219,7 @@ where
         self.first_cluster
     }
 
-    fn flush(&mut self) -> Result<(), Error<IO::Error>> {
+    async fn flush(&mut self) -> Result<(), Error<IO::Error>> {
         self.flush_dir_entry()?;
         let mut disk = self.fs.disk.borrow_mut();
         disk.flush()?;
@@ -248,9 +248,10 @@ where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
     fn drop(&mut self) {
-        if let Err(err) = self.flush() {
-            error!("flush failed {:?}", err);
-        }
+        // TODO
+        // if let Err(err) = self.flush() {
+        //     error!("flush failed {:?}", err);
+        // }
     }
 }
 
@@ -281,7 +282,7 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Read for File<'_, IO, TP, OCC>
 where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         trace!("File::read");
         let cluster_size = self.fs.cluster_size();
         let current_cluster_opt = if self.offset % cluster_size == 0 {
@@ -315,8 +316,8 @@ where
         let offset_in_fs = self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
         let read_bytes = {
             let mut disk = self.fs.disk.borrow_mut();
-            disk.seek(SeekFrom::Start(offset_in_fs))?;
-            disk.read(&mut buf[..read_size])?
+            disk.seek(SeekFrom::Start(offset_in_fs)).await?;
+            disk.read(&mut buf[..read_size]).await?
         };
         if read_bytes == 0 {
             return Ok(0);
@@ -339,7 +340,7 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> std::io::Read for File<'_, IO, TP
 where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    async fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         Ok(Read::read(self, buf).unwrap()) // TODO map
     }
 }
@@ -348,7 +349,7 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC>
 where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         trace!("File::write");
         let cluster_size = self.fs.cluster_size();
         let offset_in_cluster = self.offset % cluster_size;
@@ -361,7 +362,7 @@ where
             return Ok(0);
         }
         // Mark the volume 'dirty'
-        self.fs.set_dirty_flag(true)?;
+        self.fs.set_dirty_flag(true).await?;
         // Get cluster for write possibly allocating new one
         let current_cluster = if self.offset % cluster_size == 0 {
             // next cluster
@@ -380,7 +381,7 @@ where
                 n
             } else {
                 // end of chain reached - allocate new cluster
-                let new_cluster = self.fs.alloc_cluster(self.current_cluster, self.is_dir())?;
+                let new_cluster = self.fs.alloc_cluster(self.current_cluster, self.is_dir()).await?;
                 trace!("allocated cluster {}", new_cluster);
                 if self.first_cluster.is_none() {
                     self.set_first_cluster(new_cluster);
@@ -398,8 +399,8 @@ where
         let offset_in_fs = self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
         let written_bytes = {
             let mut disk = self.fs.disk.borrow_mut();
-            disk.seek(SeekFrom::Start(offset_in_fs))?;
-            disk.write(&buf[..write_size])?
+            disk.seek(SeekFrom::Start(offset_in_fs)).await?;
+            disk.write(&buf[..write_size]).await?
         };
         if written_bytes == 0 {
             return Ok(0);
@@ -411,8 +412,8 @@ where
         Ok(written_bytes)
     }
 
-    fn flush(&mut self) -> Result<(), Self::Error> {
-        Self::flush(self)
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Self::flush(self).await
     }
 }
 
@@ -421,7 +422,7 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> std::io::Write for File<'_, IO, T
 where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+    async fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         Ok(Write::write(self, buf).unwrap()) // TODO handle
     }
 
@@ -438,7 +439,7 @@ impl<IO: ReadWriteSeek, TP, OCC> Seek for File<'_, IO, TP, OCC>
 where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         trace!("File::seek");
         let size_opt = self.size();
         let new_offset_opt: Option<u32> = match pos {
@@ -507,7 +508,7 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> std::io::Seek for File<'_, IO, TP
 where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
-    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
-        Ok(Seek::seek(self, crate::StdSeekPosWrapper::from(pos).into()).unwrap()) // TODO handle
+    fn.seek(&mut self, pos: std::io::SeekFrom).await -> std::io::Result<u64> {
+        Ok(Seek:.seek(self, crate::StdSeekPosWrapper::from(pos).into()).unwrap()).await // TODO handle
     }
 }

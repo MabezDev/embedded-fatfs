@@ -16,6 +16,6 @@ fn main() -> io::Result<()> {
     let options = FsOptions::new().update_accessed_date(true);
     let fs = FileSystem::new(buf_stream, options)?;
     let mut file = fs.root_dir().create_file("hello.txt")?;
-    file.write_all(b"Hello World!")?;
+    file.write_all(b"Hello World!").await?;
     Ok(())
 }

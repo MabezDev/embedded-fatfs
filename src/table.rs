@@ -223,16 +223,16 @@ where
     // init first two reserved entries to FAT ID
     match fat_type {
         FatType::Fat12 => {
-            fat.write_u8(media)?;
-            fat.write_u16_le(0xFFFF)?;
+            fat.write_u8(media).await?;
+            fat.write_u16_le(0xFFFF).await?;
         }
         FatType::Fat16 => {
-            fat.write_u16_le(u16::from(media) | 0xFF00)?;
-            fat.write_u16_le(0xFFFF)?;
+            fat.write_u16_le(u16::from(media) | 0xFF00).await?;
+            fat.write_u16_le(0xFFFF).await?;
         }
         FatType::Fat32 => {
-            fat.write_u32_le(u32::from(media) | 0xFFF_FF00)?;
-            fat.write_u32_le(0xFFFF_FFFF)?;
+            fat.write_u32_le(u32::from(media) | 0xFFF_FF00).await?;
+            fat.write_u32_le(0xFFFF_FFFF).await?;
         }
     };
     // mark entries at the end of FAT as used (after FAT but before sector end)
@@ -260,8 +260,8 @@ impl FatTrait for Fat12 {
         S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
     {
         let fat_offset = cluster + (cluster / 2);
-        fat.seek(io::SeekFrom::Start(u64::from(fat_offset)))?;
-        let packed_val = fat.read_u16_le()?;
+        fat.seek(io::SeekFrom::Start(u64::from(fat_offset))).await?;
+        let packed_val = fat.read_u16_le().await?;
         Ok(u32::from(match cluster & 1 {
             0 => packed_val & 0x0FFF,
             _ => packed_val >> 4,
@@ -308,14 +308,14 @@ impl FatTrait for Fat12 {
         S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
     {
         let fat_offset = cluster + (cluster / 2);
-        fat.seek(io::SeekFrom::Start(u64::from(fat_offset)))?;
-        let old_packed = fat.read_u16_le()?;
-        fat.seek(io::SeekFrom::Start(u64::from(fat_offset)))?;
+        fat.seek(io::SeekFrom::Start(u64::from(fat_offset))).await?;
+        let old_packed = fat.read_u16_le().await?;
+        fat.seek(io::SeekFrom::Start(u64::from(fat_offset))).await?;
         let new_packed = match cluster & 1 {
             0 => (old_packed & 0xF000) | raw_val as u16,
             _ => (old_packed & 0x000F) | ((raw_val as u16) << 4),
         };
-        fat.write_u16_le(new_packed)?;
+        fat.write_u16_le(new_packed).await?;
         Ok(())
     }
 
@@ -328,8 +328,8 @@ impl FatTrait for Fat12 {
     {
         let mut cluster = start_cluster;
         let fat_offset = cluster + (cluster / 2);
-        fat.seek(io::SeekFrom::Start(u64::from(fat_offset)))?;
-        let mut packed_val = fat.read_u16_le()?;
+        fat.seek(io::SeekFrom::Start(u64::from(fat_offset))).await?;
+        let mut packed_val = fat.read_u16_le().await?;
         loop {
             let val = match cluster & 1 {
                 0 => packed_val & 0x0FFF,
@@ -343,9 +343,9 @@ impl FatTrait for Fat12 {
                 return Err(Error::NotEnoughSpace);
             }
             packed_val = if cluster & 1 == 0 {
-                fat.read_u16_le()?
+                fat.read_u16_le().await?
             } else {
-                let next_byte = fat.read_u8()?;
+                let next_byte = fat.read_u8().await?;
                 (packed_val >> 8) | (u16::from(next_byte) << 8)
             };
         }
@@ -360,12 +360,12 @@ impl FatTrait for Fat12 {
     {
         let mut count = 0;
         let mut cluster = RESERVED_FAT_ENTRIES;
-        fat.seek(io::SeekFrom::Start(u64::from(cluster * 3 / 2)))?;
+        fat.seek(io::SeekFrom::Start(u64::from(cluster * 3 / 2))).await?;
         let mut prev_packed_val = 0_u16;
         while cluster < end_cluster {
             let res = match cluster & 1 {
-                0 => fat.read_u16_le(),
-                _ => fat.read_u8().map(u16::from),
+                0 => fat.read_u16_le().await,
+                _ => fat.read_u8().await.map(u16::from),
             };
             let packed_val = match res {
                 Err(err) => return Err(err.into()),
@@ -393,8 +393,8 @@ impl FatTrait for Fat16 {
         Error<E>: From<S::Error>,
         S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
     {
-        fat.seek(io::SeekFrom::Start(u64::from(cluster * 2)))?;
-        Ok(u32::from(fat.read_u16_le()?))
+        fat.seek(io::SeekFrom::Start(u64::from(cluster * 2))).await?;
+        Ok(u32::from(fat.read_u16_le().await?))
     }
 
     fn get<S, E>(fat: &mut S, cluster: u32) -> Result<FatValue, Error<E>>
@@ -437,9 +437,9 @@ impl FatTrait for Fat16 {
         S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
     {
         let mut cluster = start_cluster;
-        fat.seek(io::SeekFrom::Start(u64::from(cluster * 2)))?;
+        fat.seek(io::SeekFrom::Start(u64::from(cluster * 2))).await?;
         while cluster < end_cluster {
-            let val = fat.read_u16_le()?;
+            let val = fat.read_u16_le().await?;
             if val == 0 {
                 return Ok(cluster);
             }
@@ -457,9 +457,9 @@ impl FatTrait for Fat16 {
     {
         let mut count = 0;
         let mut cluster = RESERVED_FAT_ENTRIES;
-        fat.seek(io::SeekFrom::Start(u64::from(cluster * 2)))?;
+        fat.seek(io::SeekFrom::Start(u64::from(cluster * 2))).await?;
         while cluster < end_cluster {
-            let val = fat.read_u16_le()?;
+            let val = fat.read_u16_le().await?;
             if val == 0 {
                 count += 1;
             }
@@ -475,8 +475,8 @@ impl FatTrait for Fat16 {
         Error<E>: From<S::Error>,
         S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
     {
-        fat.seek(io::SeekFrom::Start(u64::from(cluster * 2)))?;
-        fat.write_u16_le(raw_value as u16)?;
+        fat.seek(io::SeekFrom::Start(u64::from(cluster * 2))).await?;
+        fat.write_u16_le(raw_value as u16).await?;
         Ok(())
     }
 }
@@ -489,8 +489,8 @@ impl FatTrait for Fat32 {
         Error<E>: From<S::Error>,
         S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
     {
-        fat.seek(io::SeekFrom::Start(u64::from(cluster * 4)))?;
-        Ok(fat.read_u32_le()?)
+        fat.seek(io::SeekFrom::Start(u64::from(cluster * 4))).await?;
+        Ok(fat.read_u32_le().await?)
     }
 
     fn get<S, E>(fat: &mut S, cluster: u32) -> Result<FatValue, Error<E>>
@@ -571,9 +571,9 @@ impl FatTrait for Fat32 {
         S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
     {
         let mut cluster = start_cluster;
-        fat.seek(io::SeekFrom::Start(u64::from(cluster * 4)))?;
+        fat.seek(io::SeekFrom::Start(u64::from(cluster * 4))).await?;
         while cluster < end_cluster {
-            let val = fat.read_u32_le()? & 0x0FFF_FFFF;
+            let val = fat.read_u32_le().await? & 0x0FFF_FFFF;
             if val == 0 {
                 return Ok(cluster);
             }
@@ -591,9 +591,9 @@ impl FatTrait for Fat32 {
     {
         let mut count = 0;
         let mut cluster = RESERVED_FAT_ENTRIES;
-        fat.seek(io::SeekFrom::Start(u64::from(cluster * 4)))?;
+        fat.seek(io::SeekFrom::Start(u64::from(cluster * 4))).await?;
         while cluster < end_cluster {
-            let val = fat.read_u32_le()? & 0x0FFF_FFFF;
+            let val = fat.read_u32_le().await? & 0x0FFF_FFFF;
             if val == 0 {
                 count += 1;
             }
@@ -609,8 +609,8 @@ impl FatTrait for Fat32 {
         Error<E>: From<S::Error>,
         S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
     {
-        fat.seek(io::SeekFrom::Start(u64::from(cluster * 4)))?;
-        fat.write_u32_le(raw_value)?;
+        fat.seek(io::SeekFrom::Start(u64::from(cluster * 4))).await?;
+        fat.write_u32_le(raw_value).await?;
         Ok(())
     }
 }

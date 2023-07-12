@@ -33,7 +33,7 @@ fn basic_fs_test(fs: &FileSystem) {
     {
         let mut file = subdir2.create_file("test file name.txt").expect("create file");
         file.truncate().expect("truncate file");
-        file.write_all(test_str.as_bytes()).expect("write file");
+        file.write_all(test_str.as_bytes()).expect("write file").await;
     }
 
     let mut file = root_dir

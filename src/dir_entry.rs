@@ -258,18 +258,18 @@ impl DirFileEntryData {
     where
         W::Error: From<WriteAllError<W::Error>>,
     {
-        wrt.write_all(&self.name)?;
-        wrt.write_u8(self.attrs.bits())?;
-        wrt.write_u8(self.reserved_0)?;
-        wrt.write_u8(self.create_time_0)?;
-        wrt.write_u16_le(self.create_time_1)?;
-        wrt.write_u16_le(self.create_date)?;
-        wrt.write_u16_le(self.access_date)?;
-        wrt.write_u16_le(self.first_cluster_hi)?;
-        wrt.write_u16_le(self.modify_time)?;
-        wrt.write_u16_le(self.modify_date)?;
-        wrt.write_u16_le(self.first_cluster_lo)?;
-        wrt.write_u32_le(self.size)?;
+        wrt.write_all(&self.name).await?;
+        wrt.write_u8(self.attrs.bits()).await?;
+        wrt.write_u8(self.reserved_0).await?;
+        wrt.write_u8(self.create_time_0).await?;
+        wrt.write_u16_le(self.create_time_1).await?;
+        wrt.write_u16_le(self.create_date).await?;
+        wrt.write_u16_le(self.access_date).await?;
+        wrt.write_u16_le(self.first_cluster_hi).await?;
+        wrt.write_u16_le(self.modify_time).await?;
+        wrt.write_u16_le(self.modify_date).await?;
+        wrt.write_u16_le(self.first_cluster_lo).await?;
+        wrt.write_u32_le(self.size).await?;
         Ok(())
     }
 
@@ -330,19 +330,19 @@ impl DirLfnEntryData {
     where
         W::Error: From<WriteAllError<W::Error>>,
     {
-        wrt.write_u8(self.order)?;
+        wrt.write_u8(self.order).await?;
         for ch in &self.name_0 {
-            wrt.write_u16_le(*ch)?;
+            wrt.write_u16_le(*ch).await?;
         }
-        wrt.write_u8(self.attrs.bits())?;
-        wrt.write_u8(self.entry_type)?;
-        wrt.write_u8(self.checksum)?;
+        wrt.write_u8(self.attrs.bits()).await?;
+        wrt.write_u8(self.entry_type).await?;
+        wrt.write_u8(self.checksum).await?;
         for ch in &self.name_1 {
-            wrt.write_u16_le(*ch)?;
+            wrt.write_u16_le(*ch).await?;
         }
-        wrt.write_u16_le(self.reserved_0)?;
+        wrt.write_u16_le(self.reserved_0).await?;
         for ch in &self.name_2 {
-            wrt.write_u16_le(*ch)?;
+            wrt.write_u16_le(*ch).await?;
         }
         Ok(())
     }
@@ -389,7 +389,7 @@ impl DirEntryData {
     {
         trace!("DirEntryData::deserialize");
         let mut name = [0; SFN_SIZE];
-        match rdr.read_exact(&mut name) {
+        match rdr.read_exact(&mut name).await {
             Err(ReadExactError::UnexpectedEof) => {
                 // entries can occupy all clusters of directory so there is no zero entry at the end
                 // handle it here by returning non-existing empty entry
@@ -400,7 +400,7 @@ impl DirEntryData {
             }
             Ok(_) => {}
         }
-        let attrs = FileAttributes::from_bits_truncate(rdr.read_u8()?);
+        let attrs = FileAttributes::from_bits_truncate(rdr.read_u8().await?);
         if attrs & FileAttributes::LFN == FileAttributes::LFN {
             // read long name entry
             let mut data = DirLfnEntryData {
@@ -414,14 +414,14 @@ impl DirEntryData {
                 *dst = u16::from_le_bytes(src.try_into().unwrap());
             }
 
-            data.entry_type = rdr.read_u8()?;
-            data.checksum = rdr.read_u8()?;
+            data.entry_type = rdr.read_u8().await?;
+            data.checksum = rdr.read_u8().await?;
             for x in &mut data.name_1 {
-                *x = rdr.read_u16_le()?;
+                *x = rdr.read_u16_le().await?;
             }
-            data.reserved_0 = rdr.read_u16_le()?;
+            data.reserved_0 = rdr.read_u16_le().await?;
             for x in &mut data.name_2 {
-                *x = rdr.read_u16_le()?;
+                *x = rdr.read_u16_le().await?;
             }
             Ok(DirEntryData::Lfn(data))
         } else {
@@ -429,16 +429,16 @@ impl DirEntryData {
             let data = DirFileEntryData {
                 name,
                 attrs,
-                reserved_0: rdr.read_u8()?,
-                create_time_0: rdr.read_u8()?,
-                create_time_1: rdr.read_u16_le()?,
-                create_date: rdr.read_u16_le()?,
-                access_date: rdr.read_u16_le()?,
-                first_cluster_hi: rdr.read_u16_le()?,
-                modify_time: rdr.read_u16_le()?,
-                modify_date: rdr.read_u16_le()?,
-                first_cluster_lo: rdr.read_u16_le()?,
-                size: rdr.read_u32_le()?,
+                reserved_0: rdr.read_u8().await?,
+                create_time_0: rdr.read_u8().await?,
+                create_time_1: rdr.read_u16_le().await?,
+                create_date: rdr.read_u16_le().await?,
+                access_date: rdr.read_u16_le().await?,
+                first_cluster_hi: rdr.read_u16_le().await?,
+                modify_time: rdr.read_u16_le().await?,
+                modify_date: rdr.read_u16_le().await?,
+                first_cluster_lo: rdr.read_u16_le().await?,
+                size: rdr.read_u32_le().await?,
             };
             Ok(DirEntryData::File(data))
         }
@@ -540,7 +540,7 @@ impl DirEntryEditor {
         IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
     {
         let mut disk = fs.disk.borrow_mut();
-        disk.seek(io::SeekFrom::Start(self.pos))?;
+        disk.seek(io::SeekFrom::Start(self.pos)).await?;
         self.data.serialize(&mut *disk)
     }
 }

@@ -45,8 +45,8 @@ fn test_write_short_file(fs: FileSystem) {
     let root_dir = fs.root_dir();
     let mut file = root_dir.open_file("short.txt").expect("open file");
     file.truncate().unwrap();
-    file.write_all(&TEST_STR.as_bytes()).unwrap();
-    file.seek(SeekFrom::Start(0)).unwrap();
+    file.write_all(&TEST_STR.as_bytes()).unwrap().await;
+    file.seek(SeekFrom::Start(0)).unwrap().await;
     let mut buf = Vec::new();
     file.read_to_end(&mut buf).unwrap();
     assert_eq!(TEST_STR, str::from_utf8(&buf).unwrap());
@@ -72,14 +72,14 @@ fn test_write_long_file(fs: FileSystem) {
     let mut file = root_dir.open_file("long.txt").expect("open file");
     file.truncate().unwrap();
     let test_str = TEST_STR.repeat(1000);
-    file.write_all(&test_str.as_bytes()).unwrap();
-    file.seek(SeekFrom::Start(0)).unwrap();
+    file.write_all(&test_str.as_bytes()).unwrap().await;
+    file.seek(SeekFrom::Start(0)).unwrap().await;
     let mut buf = Vec::new();
     file.read_to_end(&mut buf).unwrap();
     assert_eq!(test_str, str::from_utf8(&buf).unwrap());
-    file.seek(SeekFrom::Start(1234)).unwrap();
+    file.seek(SeekFrom::Start(1234)).unwrap().await;
     file.truncate().unwrap();
-    file.seek(SeekFrom::Start(0)).unwrap();
+    file.seek(SeekFrom::Start(0)).unwrap().await;
     buf.clear();
     file.read_to_end(&mut buf).unwrap();
     assert_eq!(&test_str[..1234], str::from_utf8(&buf).unwrap());
@@ -146,7 +146,7 @@ fn test_create_file(fs: FileSystem) {
         let mut file = root_dir
             .create_file("very/long/path/new-file-with-long-name.txt")
             .unwrap();
-        file.write_all(&TEST_STR.as_bytes()).unwrap();
+        file.write_all(&TEST_STR.as_bytes()).unwrap().await;
     }
     // check for dir entry
     names = dir.iter().map(|r| r.unwrap().file_name()).collect::<Vec<String>>();
@@ -376,7 +376,7 @@ fn test_multiple_files_in_directory(fs: FileSystem) {
     for i in 0..8 {
         let name = format!("T{}.TXT", i);
         let mut file = dir.create_file(&name).unwrap();
-        file.write_all(TEST_STR.as_bytes()).unwrap();
+        file.write_all(TEST_STR.as_bytes()).unwrap().await;
         file.flush().unwrap();
 
         let file = dir.iter().map(|r| r.unwrap()).find(|e| e.file_name() == name).unwrap();

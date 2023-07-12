@@ -75,7 +75,7 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Read for DirRawStream<'_, IO, TP,
 where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         match self {
             DirRawStream::File(file) => file.read(buf),
             DirRawStream::Root(raw) => raw.read(buf),
@@ -87,13 +87,13 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for DirRawStream<'_, IO, TP
 where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         match self {
             DirRawStream::File(file) => file.write(buf),
             DirRawStream::Root(raw) => raw.write(buf),
         }
     }
-    fn flush(&mut self) -> Result<(), Self::Error> {
+    async fn flush(&mut self) -> Result<(), Self::Error> {
         match self {
             DirRawStream::File(file) => file.flush(),
             DirRawStream::Root(raw) => raw.flush(),
@@ -105,10 +105,10 @@ impl<IO: ReadWriteSeek, TP, OCC> Seek for DirRawStream<'_, IO, TP, OCC>
 where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+    fn.seek(&mut self, pos: SeekFrom).await -> Result<u64, Self::Error> {
         match self {
-            DirRawStream::File(file) => file.seek(pos),
-            DirRawStream::Root(raw) => raw.seek(pos),
+            DirRawStream::File(file) => file.seek(pos).await,
+            DirRawStream::Root(raw) => raw.seek(pos).await,
         }
     }
 }
@@ -190,7 +190,7 @@ where
     }
 
     #[allow(clippy::type_complexity)]
-    pub(crate) fn find_volume_entry(&self) -> Result<Option<DirEntry<'a, IO, TP, OCC>>, Error<IO::Error>> {
+    pub(crate) async fn find_volume_entry(&self) -> Result<Option<DirEntry<'a, IO, TP, OCC>>, Error<IO::Error>> {
         for r in DirIter::new(self.stream.clone(), self.fs, false) {
             let e = r?;
             if e.data.is_volume() {
@@ -238,7 +238,7 @@ where
     /// * `Error::NotFound` will be returned if `path` does not point to any existing directory entry.
     /// * `Error::InvalidInput` will be returned if `path` points to a file that is not a directory.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
-    pub fn open_dir(&self, path: &str) -> Result<Self, Error<IO::Error>> {
+    pub async fn open_dir(&self, path: &str) -> Result<Self, Error<IO::Error>> {
         trace!("Dir::open_dir {}", path);
         let (name, rest_opt) = split_path(path);
         let e = self.find_entry(name, Some(true), None)?;
@@ -259,7 +259,7 @@ where
     /// * `Error::NotFound` will be returned if `path` points to a non-existing directory entry.
     /// * `Error::InvalidInput` will be returned if `path` points to a file that is a directory.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
-    pub fn open_file(&self, path: &str) -> Result<File<'a, IO, TP, OCC>, Error<IO::Error>> {
+    pub async fn open_file(&self, path: &str) -> Result<File<'a, IO, TP, OCC>, Error<IO::Error>> {
         trace!("Dir::open_file {}", path);
         // traverse path
         let (name, rest_opt) = split_path(path);
@@ -286,7 +286,7 @@ where
     /// * `Error::UnsupportedFileNameCharacter` will be returned if the file name contains an invalid character.
     /// * `Error::NotEnoughSpace` will be returned if there is not enough free space to create a new file.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
-    pub fn create_file(&self, path: &str) -> Result<File<'a, IO, TP, OCC>, Error<IO::Error>> {
+    pub async fn create_file(&self, path: &str) -> Result<File<'a, IO, TP, OCC>, Error<IO::Error>> {
         trace!("Dir::create_file {}", path);
         // traverse path
         let (name, rest_opt) = split_path(path);
@@ -319,7 +319,7 @@ where
     /// * `Error::UnsupportedFileNameCharacter` will be returned if the file name contains an invalid character.
     /// * `Error::NotEnoughSpace` will be returned if there is not enough free space to create a new directory.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
-    pub fn create_dir(&self, path: &str) -> Result<Self, Error<IO::Error>> {
+    pub async fn create_dir(&self, path: &str) -> Result<Self, Error<IO::Error>> {
         trace!("Dir::create_dir {}", path);
         // traverse path
         let (name, rest_opt) = split_path(path);
@@ -352,7 +352,7 @@ where
         }
     }
 
-    fn is_empty(&self) -> Result<bool, Error<IO::Error>> {
+    async fn is_empty(&self) -> Result<bool, Error<IO::Error>> {
         trace!("Dir::is_empty");
         // check if directory contains no files
         for r in self.iter() {
@@ -380,7 +380,7 @@ where
     /// * `Error::InvalidInput` will be returned if `path` points to a file that is not a directory.
     /// * `Error::DirectoryIsNotEmpty` will be returned if the specified directory is not empty.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
-    pub fn remove(&self, path: &str) -> Result<(), Error<IO::Error>> {
+    pub async fn remove(&self, path: &str) -> Result<(), Error<IO::Error>> {
         trace!("Dir::remove {}", path);
         // traverse path
         let (name, rest_opt) = split_path(path);
@@ -399,13 +399,13 @@ where
         }
         // free long and short name entries
         let mut stream = self.stream.clone();
-        stream.seek(SeekFrom::Start(e.offset_range.0))?;
+        stream.seek(SeekFrom::Start(e.offset_range.0)).await?;
         let num = ((e.offset_range.1 - e.offset_range.0) / u64::from(DIR_ENTRY_SIZE)) as usize;
         for _ in 0..num {
             let mut data = DirEntryData::deserialize(&mut stream)?;
             trace!("removing dir entry {:?}", data);
             data.set_deleted();
-            stream.seek(SeekFrom::Current(-i64::from(DIR_ENTRY_SIZE)))?;
+            stream.seek(SeekFrom::Current(-i64::from(DIR_ENTRY_SIZE))).await?;
             data.serialize(&mut stream)?;
         }
         Ok(())
@@ -427,7 +427,7 @@ where
     ///   stripped from the last component does not point to an existing directory.
     /// * `Error::AlreadyExists` will be returned if `dst_path` points to an existing directory entry.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
-    pub fn rename(&self, src_path: &str, dst_dir: &Dir<IO, TP, OCC>, dst_path: &str) -> Result<(), Error<IO::Error>> {
+    pub async fn rename(&self, src_path: &str, dst_dir: &Dir<IO, TP, OCC>, dst_path: &str) -> Result<(), Error<IO::Error>> {
         trace!("Dir::rename {} {}", src_path, dst_path);
         // traverse source path
         let (src_name, src_rest_opt) = split_path(src_path);
@@ -472,22 +472,22 @@ where
         };
         // free long and short name entries
         let mut stream = self.stream.clone();
-        stream.seek(SeekFrom::Start(e.offset_range.0))?;
+        stream.seek(SeekFrom::Start(e.offset_range.0)).await?;
         let num = ((e.offset_range.1 - e.offset_range.0) / u64::from(DIR_ENTRY_SIZE)) as usize;
         for _ in 0..num {
             let mut data = DirEntryData::deserialize(&mut stream)?;
             trace!("removing LFN entry {:?}", data);
             data.set_deleted();
-            stream.seek(SeekFrom::Current(-i64::from(DIR_ENTRY_SIZE)))?;
+            stream.seek(SeekFrom::Current(-i64::from(DIR_ENTRY_SIZE))).await?;
             data.serialize(&mut stream)?;
         }
         // save new directory entry
         let sfn_entry = e.data.renamed(short_name);
-        dst_dir.write_entry(dst_name, sfn_entry)?;
+        dst_dir.write_entry(dst_name, sfn_entry).await?;
         Ok(())
     }
 
-    fn find_free_entries(&self, num_entries: u32) -> Result<DirRawStream<'a, IO, TP, OCC>, Error<IO::Error>> {
+    async fn find_free_entries(&self, num_entries: u32) -> Result<DirRawStream<'a, IO, TP, OCC>, Error<IO::Error>> {
         let mut stream = self.stream.clone();
         let mut first_free: u32 = 0;
         let mut num_free: u32 = 0;
@@ -500,7 +500,7 @@ where
                     first_free = i;
                 }
                 let pos = u64::from(first_free * DIR_ENTRY_SIZE);
-                stream.seek(io::SeekFrom::Start(pos))?;
+                stream.seek(io::SeekFrom::Start(pos)).await?;
                 return Ok(stream);
             } else if raw_entry.is_deleted() {
                 // free entry - calculate number of free entries in a row
@@ -511,7 +511,7 @@ where
                 if num_free == num_entries {
                     // enough space for new file
                     let pos = u64::from(first_free * DIR_ENTRY_SIZE);
-                    stream.seek(io::SeekFrom::Start(pos))?;
+                    stream.seek(io::SeekFrom::Start(pos)).await?;
                     return Ok(stream);
                 }
             } else {
@@ -547,7 +547,7 @@ where
     }
 
     #[allow(clippy::type_complexity)]
-    fn alloc_and_write_lfn_entries(
+    async fn alloc_and_write_lfn_entries(
         &self,
         lfn_utf16: &LfnBuffer,
         short_name: &[u8; SFN_SIZE],
@@ -559,7 +559,7 @@ where
         // find space for new entries (multiple LFN entries and 1 SFN entry)
         let num_entries = lfn_iter.len() as u32 + 1;
         let mut stream = self.find_free_entries(num_entries)?;
-        let start_pos = stream.seek(io::SeekFrom::Current(0))?;
+        let start_pos = stream.seek(io::SeekFrom::Current(0)).await?;
         // write LFN entries before SFN entry
         for lfn_entry in lfn_iter {
             lfn_entry.serialize(&mut stream)?;
@@ -567,7 +567,7 @@ where
         Ok((stream, start_pos))
     }
 
-    fn write_entry(
+    async fn write_entry(
         &self,
         name: &str,
         raw_entry: DirFileEntryData,
@@ -578,11 +578,11 @@ where
         // convert long name to UTF-16
         let lfn_utf16 = Self::encode_lfn_utf16(name);
         // write LFN entries
-        let (mut stream, start_pos) = self.alloc_and_write_lfn_entries(&lfn_utf16, raw_entry.name())?;
+        let (mut stream, start_pos) = self.alloc_and_write_lfn_entries(&lfn_utf16, raw_entry.name()).await?;
         // write short name entry
         raw_entry.serialize(&mut stream)?;
         // Get position directory stream after entries were written
-        let end_pos = stream.seek(io::SeekFrom::Current(0))?;
+        let end_pos = stream.seek(io::SeekFrom::Current(0)).await?;
         // Get current absolute position on the storage
         // Unwrapping is safe because abs_pos() returns None only if stream is at position 0. This is not
         // the case because an entry was just written
@@ -660,10 +660,10 @@ where
     }
 
     #[allow(clippy::type_complexity)]
-    fn read_dir_entry(&mut self) -> Result<Option<DirEntry<'a, IO, TP, OCC>>, Error<IO::Error>> {
+    async fn read_dir_entry(&mut self) -> Result<Option<DirEntry<'a, IO, TP, OCC>>, Error<IO::Error>> {
         trace!("DirIter::read_dir_entry");
         let mut lfn_builder = LongNameBuilder::new();
-        let mut offset = self.stream.seek(SeekFrom::Current(0))?;
+        let mut offset = self.stream.seek(SeekFrom::Current(0)).await?;
         let mut begin_offset = offset;
         loop {
             let raw_entry = DirEntryData::deserialize(&mut self.stream)?;
@@ -739,7 +739,7 @@ where
         if self.err {
             return None;
         }
-        let r = self.read_dir_entry();
+        let r = self.read_dir_entry().await;
         match r {
             Ok(Some(e)) => Some(Ok(e)),
             Ok(None) => None,

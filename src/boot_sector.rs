@@ -48,42 +48,42 @@ pub(crate) struct BiosParameterBlock {
 }
 
 impl BiosParameterBlock {
-    fn deserialize<R: Read>(rdr: &mut R) -> Result<Self, R::Error>
+    async fn deserialize<R: Read>(rdr: &mut R) -> Result<Self, R::Error>
     where
         R::Error: From<ReadExactError<R::Error>>,
     {
         let mut bpb = Self {
-            bytes_per_sector: rdr.read_u16_le()?,
-            sectors_per_cluster: rdr.read_u8()?,
-            reserved_sectors: rdr.read_u16_le()?,
-            fats: rdr.read_u8()?,
-            root_entries: rdr.read_u16_le()?,
-            total_sectors_16: rdr.read_u16_le()?,
-            media: rdr.read_u8()?,
-            sectors_per_fat_16: rdr.read_u16_le()?,
-            sectors_per_track: rdr.read_u16_le()?,
-            heads: rdr.read_u16_le()?,
-            hidden_sectors: rdr.read_u32_le()?,
-            total_sectors_32: rdr.read_u32_le()?,
+            bytes_per_sector: rdr.read_u16_le().await?,
+            sectors_per_cluster: rdr.read_u8().await?,
+            reserved_sectors: rdr.read_u16_le().await?,
+            fats: rdr.read_u8().await?,
+            root_entries: rdr.read_u16_le().await?,
+            total_sectors_16: rdr.read_u16_le().await?,
+            media: rdr.read_u8().await?,
+            sectors_per_fat_16: rdr.read_u16_le().await?,
+            sectors_per_track: rdr.read_u16_le().await?,
+            heads: rdr.read_u16_le().await?,
+            hidden_sectors: rdr.read_u32_le().await?,
+            total_sectors_32: rdr.read_u32_le().await?,
             ..Self::default()
         };
 
         if bpb.is_fat32() {
-            bpb.sectors_per_fat_32 = rdr.read_u32_le()?;
-            bpb.extended_flags = rdr.read_u16_le()?;
-            bpb.fs_version = rdr.read_u16_le()?;
-            bpb.root_dir_first_cluster = rdr.read_u32_le()?;
-            bpb.fs_info_sector = rdr.read_u16_le()?;
-            bpb.backup_boot_sector = rdr.read_u16_le()?;
-            rdr.read_exact(&mut bpb.reserved_0)?;
+            bpb.sectors_per_fat_32 = rdr.read_u32_le().await?;
+            bpb.extended_flags = rdr.read_u16_le().await?;
+            bpb.fs_version = rdr.read_u16_le().await?;
+            bpb.root_dir_first_cluster = rdr.read_u32_le().await?;
+            bpb.fs_info_sector = rdr.read_u16_le().await?;
+            bpb.backup_boot_sector = rdr.read_u16_le().await?;
+            rdr.read_exact(&mut bpb.reserved_0).await?;
         }
 
-        bpb.drive_num = rdr.read_u8()?;
-        bpb.reserved_1 = rdr.read_u8()?;
-        bpb.ext_sig = rdr.read_u8()?; // 0x29
-        bpb.volume_id = rdr.read_u32_le()?;
-        rdr.read_exact(&mut bpb.volume_label)?;
-        rdr.read_exact(&mut bpb.fs_type_label)?;
+        bpb.drive_num = rdr.read_u8().await?;
+        bpb.reserved_1 = rdr.read_u8().await?;
+        bpb.ext_sig = rdr.read_u8().await?; // 0x29
+        bpb.volume_id = rdr.read_u32_le().await?;
+        rdr.read_exact(&mut bpb.volume_label).await?;
+        rdr.read_exact(&mut bpb.fs_type_label).await?;
 
         // when the extended boot signature is anything other than 0x29, the fields are invalid
         if bpb.ext_sig != 0x29 {
@@ -100,35 +100,35 @@ impl BiosParameterBlock {
     where
         W::Error: From<WriteAllError<W::Error>>,
     {
-        wrt.write_u16_le(self.bytes_per_sector)?;
-        wrt.write_u8(self.sectors_per_cluster)?;
-        wrt.write_u16_le(self.reserved_sectors)?;
-        wrt.write_u8(self.fats)?;
-        wrt.write_u16_le(self.root_entries)?;
-        wrt.write_u16_le(self.total_sectors_16)?;
-        wrt.write_u8(self.media)?;
-        wrt.write_u16_le(self.sectors_per_fat_16)?;
-        wrt.write_u16_le(self.sectors_per_track)?;
-        wrt.write_u16_le(self.heads)?;
-        wrt.write_u32_le(self.hidden_sectors)?;
-        wrt.write_u32_le(self.total_sectors_32)?;
+        wrt.write_u16_le(self.bytes_per_sector).await?;
+        wrt.write_u8(self.sectors_per_cluster).await?;
+        wrt.write_u16_le(self.reserved_sectors).await?;
+        wrt.write_u8(self.fats).await?;
+        wrt.write_u16_le(self.root_entries).await?;
+        wrt.write_u16_le(self.total_sectors_16).await?;
+        wrt.write_u8(self.media).await?;
+        wrt.write_u16_le(self.sectors_per_fat_16).await?;
+        wrt.write_u16_le(self.sectors_per_track).await?;
+        wrt.write_u16_le(self.heads).await?;
+        wrt.write_u32_le(self.hidden_sectors).await?;
+        wrt.write_u32_le(self.total_sectors_32).await?;
 
         if self.is_fat32() {
-            wrt.write_u32_le(self.sectors_per_fat_32)?;
-            wrt.write_u16_le(self.extended_flags)?;
-            wrt.write_u16_le(self.fs_version)?;
-            wrt.write_u32_le(self.root_dir_first_cluster)?;
-            wrt.write_u16_le(self.fs_info_sector)?;
-            wrt.write_u16_le(self.backup_boot_sector)?;
-            wrt.write_all(&self.reserved_0)?;
+            wrt.write_u32_le(self.sectors_per_fat_32).await?;
+            wrt.write_u16_le(self.extended_flags).await?;
+            wrt.write_u16_le(self.fs_version).await?;
+            wrt.write_u32_le(self.root_dir_first_cluster).await?;
+            wrt.write_u16_le(self.fs_info_sector).await?;
+            wrt.write_u16_le(self.backup_boot_sector).await?;
+            wrt.write_all(&self.reserved_0).await?;
         }
 
-        wrt.write_u8(self.drive_num)?;
-        wrt.write_u8(self.reserved_1)?;
-        wrt.write_u8(self.ext_sig)?; // 0x29
-        wrt.write_u32_le(self.volume_id)?;
-        wrt.write_all(&self.volume_label)?;
-        wrt.write_all(&self.fs_type_label)?;
+        wrt.write_u8(self.drive_num).await?;
+        wrt.write_u8(self.reserved_1).await?;
+        wrt.write_u8(self.ext_sig).await?; // 0x29
+        wrt.write_u32_le(self.volume_id).await?;
+        wrt.write_all(&self.volume_label).await?;
+        wrt.write_all(&self.fs_type_label).await?;
         Ok(())
     }
 
@@ -433,16 +433,16 @@ impl BootSector {
         R::Error: From<ReadExactError<R::Error>>,
     {
         let mut boot = Self::default();
-        rdr.read_exact(&mut boot.bootjmp)?;
-        rdr.read_exact(&mut boot.oem_name)?;
-        boot.bpb = BiosParameterBlock::deserialize(rdr)?;
+        rdr.read_exact(&mut boot.bootjmp).await?;
+        rdr.read_exact(&mut boot.oem_name).await?;
+        boot.bpb = BiosParameterBlock::deserialize(rdr).await?;
 
         if boot.bpb.is_fat32() {
-            rdr.read_exact(&mut boot.boot_code[0..420])?;
+            rdr.read_exact(&mut boot.boot_code[0..420]).await?;
         } else {
-            rdr.read_exact(&mut boot.boot_code[0..448])?;
+            rdr.read_exact(&mut boot.boot_code[0..448]).await?;
         }
-        rdr.read_exact(&mut boot.boot_sig)?;
+        rdr.read_exact(&mut boot.boot_sig).await?;
         Ok(boot)
     }
 
@@ -450,16 +450,16 @@ impl BootSector {
     where
         W::Error: From<WriteAllError<W::Error>>,
     {
-        wrt.write_all(&self.bootjmp)?;
-        wrt.write_all(&self.oem_name)?;
+        wrt.write_all(&self.bootjmp).await?;
+        wrt.write_all(&self.oem_name).await?;
         self.bpb.serialize(&mut *wrt)?;
 
         if self.bpb.is_fat32() {
-            wrt.write_all(&self.boot_code[0..420])?;
+            wrt.write_all(&self.boot_code[0..420]).await?;
         } else {
-            wrt.write_all(&self.boot_code[0..448])?;
+            wrt.write_all(&self.boot_code[0..448]).await?;
         }
-        wrt.write_all(&self.boot_sig)?;
+        wrt.write_all(&self.boot_sig).await?;
         Ok(())
     }
 

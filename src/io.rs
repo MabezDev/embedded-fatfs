@@ -129,14 +129,14 @@ impl<T> IoBase for StdIoWrapper<T> {
 
 #[cfg(feature = "std")]
 impl<T: std::io::Read> Read for StdIoWrapper<T> {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         Ok(self.inner.read(buf)?)
     }
     fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), ReadExactError<Self::Error>>
     where
         Self::Error: From<ReadExactError<Self::Error>>,
     {
-        match self.inner.read_exact(buf) {
+        match self.inner.read_exact(buf).await {
             Ok(()) => Ok(()),
             Err(error) => match error.kind() {
                 std::io::ErrorKind::UnexpectedEof => Err(ReadExactError::UnexpectedEof),
@@ -148,7 +148,7 @@ impl<T: std::io::Read> Read for StdIoWrapper<T> {
 
 #[cfg(feature = "std")]
 impl<T: std::io::Write> Write for StdIoWrapper<T> {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         Ok(self.inner.write(buf)?)
     }
 
@@ -157,7 +157,7 @@ impl<T: std::io::Write> Write for StdIoWrapper<T> {
         Ok(())
     }
 
-    fn flush(&mut self) -> Result<(), Self::Error> {
+    async fn flush(&mut self) -> Result<(), Self::Error> {
         Ok(self.inner.flush()?)
     }
 }
@@ -178,9 +178,9 @@ impl<T> From<T> for StdIoWrapper<T> {
 
 pub(crate) trait ReadLeExt {
     type Error;
-    fn read_u8(&mut self) -> Result<u8, Self::Error>;
-    fn read_u16_le(&mut self) -> Result<u16, Self::Error>;
-    fn read_u32_le(&mut self) -> Result<u32, Self::Error>;
+    async fn read_u8(&mut self) -> Result<u8, Self::Error>;
+    async fn read_u16_le(&mut self) -> Result<u16, Self::Error>;
+    async fn read_u32_le(&mut self) -> Result<u32, Self::Error>;
 }
 
 impl<T: Read> ReadLeExt for T
@@ -189,30 +189,30 @@ where
 {
     type Error = <Self as IoBase>::Error;
 
-    fn read_u8(&mut self) -> Result<u8, Self::Error> {
+    async fn read_u8(&mut self) -> Result<u8, Self::Error> {
         let mut buf = [0_u8; 1];
-        self.read_exact(&mut buf)?;
+        self.read_exact(&mut buf).await?;
         Ok(buf[0])
     }
 
-    fn read_u16_le(&mut self) -> Result<u16, Self::Error> {
+    async fn read_u16_le(&mut self) -> Result<u16, Self::Error> {
         let mut buf = [0_u8; 2];
-        self.read_exact(&mut buf)?;
+        self.read_exact(&mut buf).await?;
         Ok(u16::from_le_bytes(buf))
     }
 
-    fn read_u32_le(&mut self) -> Result<u32, Self::Error> {
+    async fn read_u32_le(&mut self) -> Result<u32, Self::Error> {
         let mut buf = [0_u8; 4];
-        self.read_exact(&mut buf)?;
+        self.read_exact(&mut buf).await?;
         Ok(u32::from_le_bytes(buf))
     }
 }
 
 pub(crate) trait WriteLeExt {
     type Error;
-    fn write_u8(&mut self, n: u8) -> Result<(), Self::Error>;
-    fn write_u16_le(&mut self, n: u16) -> Result<(), Self::Error>;
-    fn write_u32_le(&mut self, n: u32) -> Result<(), Self::Error>;
+    async fn write_u8(&mut self, n: u8) -> Result<(), Self::Error>;
+    async fn write_u16_le(&mut self, n: u16) -> Result<(), Self::Error>;
+    async fn write_u32_le(&mut self, n: u32) -> Result<(), Self::Error>;
 }
 
 impl<T: Write> WriteLeExt for T
@@ -221,18 +221,18 @@ where
 {
     type Error = <Self as IoBase>::Error;
 
-    fn write_u8(&mut self, n: u8) -> Result<(), Self::Error> {
-        self.write_all(&[n])?;
+    async fn write_u8(&mut self, n: u8) -> Result<(), Self::Error> {
+        self.write_all(&[n]).await?;
         Ok(())
     }
 
-    fn write_u16_le(&mut self, n: u16) -> Result<(), Self::Error> {
-        self.write_all(&n.to_le_bytes())?;
+    async fn write_u16_le(&mut self, n: u16) -> Result<(), Self::Error> {
+        self.write_all(&n.to_le_bytes()).await?;
         Ok(())
     }
 
-    fn write_u32_le(&mut self, n: u32) -> Result<(), Self::Error> {
-        self.write_all(&n.to_le_bytes())?;
+    async fn write_u32_le(&mut self, n: u32) -> Result<(), Self::Error> {
+        self.write_all(&n.to_le_bytes()).await?;
         Ok(())
     }
 }

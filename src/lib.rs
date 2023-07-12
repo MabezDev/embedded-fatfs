@@ -28,7 +28,7 @@
 //!     root_dir.create_dir("foo")?;
 //!     let mut file = root_dir.create_file("foo/hello.txt")?;
 //!     file.truncate()?;
-//!     file.write_all(b"Hello World!")?;
+//!     file.write_all(b"Hello World!").await?;
 //!
 //!     // Read a directory
 //!     let dir = root_dir.open_dir("foo")?;
@@ -53,6 +53,8 @@
     clippy::bool_to_int_with_if, // less readable
     clippy::uninlined_format_args, // not supported before Rust 1.58.0
 )]
+#![feature(async_fn_in_trait)]
+#![feature(impl_trait_projections)]
 
 extern crate log;
 
