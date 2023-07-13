@@ -8,6 +8,7 @@ use crate::error::Error;
 use crate::fs::{FileSystem, ReadWriteSeek};
 use crate::io::{IoBase, Read, Seek, SeekFrom, Write};
 use crate::time::{Date, DateTime, TimeProvider};
+use crate::AsyncIterator;
 
 const MAX_FILE_SIZE: u32 = core::u32::MAX;
 
@@ -97,36 +98,37 @@ where
     ///
     /// This returns an iterator over the byte ranges on-disk occupied by
     /// this file.
-    pub fn extents(&mut self) -> impl Iterator<Item = Result<Extent, Error<IO::Error>>> + 'a {
-        let fs = self.fs;
-        let cluster_size = fs.cluster_size();
-        let mut bytes_left = match self.size() {
-            Some(s) => s,
-            None => return None.into_iter().flatten(),
-        };
-        let first = match self.first_cluster {
-            Some(f) => f,
-            None => return None.into_iter().flatten(),
-        };
+    // pub fn extents(&mut self) -> impl Iterator<Item = Result<Extent, Error<IO::Error>>> + 'a {
+        // let fs = self.fs;
+        // let cluster_size = fs.cluster_size();
+        // let mut bytes_left = match self.size() {
+        //     Some(s) => s,
+        //     None => return None.into_iter().flatten(),
+        // };
+        // let first = match self.first_cluster {
+        //     Some(f) => f,
+        //     None => return None.into_iter().flatten(),
+        // };
 
-        Some(
-            core::iter::once(Ok(first))
-                .chain(fs.cluster_iter(first))
-                .map(move |cluster_err| match cluster_err {
-                    Ok(cluster) => {
-                        let size = cluster_size.min(bytes_left);
-                        bytes_left -= size;
-                        Ok(Extent {
-                            offset: fs.offset_from_cluster(cluster),
-                            size,
-                        })
-                    }
-                    Err(e) => Err(e),
-                }),
-        )
-        .into_iter()
-        .flatten()
-    }
+        // Some(
+        //     core::iter::once(Ok(first))
+        //         .chain(fs.cluster_iter(first))
+        //         .map(move |cluster_err| match cluster_err {
+        //             Ok(cluster) => {
+        //                 let size = cluster_size.min(bytes_left);
+        //                 bytes_left -= size;
+        //                 Ok(Extent {
+        //                     offset: fs.offset_from_cluster(cluster),
+        //                     size,
+        //                 })
+        //             }
+        //             Err(e) => Err(e),
+        //         }),
+        // )
+        // .into_iter()
+        // .flatten()
+        // todo!("extents needs to be implemented using AsyncIterator");
+    // }
 
     pub(crate) fn abs_pos(&self) -> Option<u64> {
         // Returns current position relative to filesystem start
@@ -290,7 +292,7 @@ where
             match self.current_cluster {
                 None => self.first_cluster,
                 Some(n) => {
-                    let r = self.fs.cluster_iter(n).next();
+                    let r = self.fs.cluster_iter(n).next().await;
                     match r {
                         Some(Err(err)) => return Err(err),
                         Some(Ok(n)) => Some(n),
@@ -369,7 +371,7 @@ where
             let next_cluster = match self.current_cluster {
                 None => self.first_cluster,
                 Some(n) => {
-                    let r = self.fs.cluster_iter(n).next();
+                    let r = self.fs.cluster_iter(n).next().await;
                     match r {
                         Some(Err(err)) => return Err(err),
                         Some(Ok(n)) => Some(n),
@@ -483,7 +485,7 @@ where
             let mut cluster = first_cluster;
             let mut iter = self.fs.cluster_iter(first_cluster);
             for i in 0..clusters_to_skip {
-                cluster = if let Some(r) = iter.next() {
+                cluster = if let Some(r) = iter.next().await {
                     r?
                 } else {
                     // cluster chain ends before the new position - seek to the end of the last cluster

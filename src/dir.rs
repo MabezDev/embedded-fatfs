@@ -10,6 +10,7 @@ use core::str;
 #[cfg(feature = "lfn")]
 use core::{iter, slice};
 
+use crate::AsyncIterator;
 use crate::dir_entry::{
     DirEntry, DirEntryData, DirFileEntryData, DirLfnEntryData, FileAttributes, ShortName, DIR_ENTRY_SIZE,
 };
@@ -166,7 +167,8 @@ where
         is_dir: Option<bool>,
         mut short_name_gen: Option<&mut ShortNameGenerator>,
     ) -> Result<DirEntry<'a, IO, TP, OCC>, Error<IO::Error>> {
-        for r in self.iter() {
+        let mut iter = self.iter();
+        while let Some(r) = iter.next().await {
             let e = r?;
             // compare name ignoring case
             if e.eq_name(name) {
@@ -191,7 +193,8 @@ where
 
     #[allow(clippy::type_complexity)]
     pub(crate) async fn find_volume_entry(&self) -> Result<Option<DirEntry<'a, IO, TP, OCC>>, Error<IO::Error>> {
-        for r in DirIter::new(self.stream.clone(), self.fs, false) {
+        let mut iter = DirIter::new(self.stream.clone(), self.fs, false);
+        while let Some(r) = iter.next().await {
             let e = r?;
             if e.data.is_volume() {
                 return Ok(Some(e));
@@ -391,7 +394,8 @@ where
     async fn is_empty(&self) -> Result<bool, Error<IO::Error>> {
         trace!("Dir::is_empty");
         // check if directory contains no files
-        for r in self.iter() {
+        let mut iter = self.iter();
+        while let Some(r) = iter.next().await {
             let e = r?;
             let name = e.short_file_name_as_bytes();
             // ignore special entries "." and ".."
@@ -801,27 +805,25 @@ where
     }
 }
 
-impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC> Iterator for DirIter<'a, IO, TP, OCC>
+impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC> AsyncIterator for DirIter<'a, IO, TP, OCC>
 where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
     type Item = Result<DirEntry<'a, IO, TP, OCC>, Error<IO::Error>>;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        todo!()
-        // TODO iter
-        // if self.err {
-        //     return None;
-        // }
-        // let r = self.read_dir_entry().await;
-        // match r {
-        //     Ok(Some(e)) => Some(Ok(e)),
-        //     Ok(None) => None,
-        //     Err(err) => {
-        //         self.err = true;
-        //         Some(Err(err))
-        //     }
-        // }
+    async fn next(&mut self) -> Option<Self::Item> {
+        if self.err {
+            return None;
+        }
+        let r = self.read_dir_entry().await;
+        match r {
+            Ok(Some(e)) => Some(Ok(e)),
+            Ok(None) => None,
+            Err(err) => {
+                self.err = true;
+                Some(Err(err))
+            }
+        }
     }
 }
 

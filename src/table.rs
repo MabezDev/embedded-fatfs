@@ -4,6 +4,7 @@ use core::marker::PhantomData;
 
 use embedded_io::WriteAllError;
 
+use crate::AsyncIterator;
 use crate::error::{Error, IoError, ReadExactError};
 use crate::fs::{FatType, FsStatusFlags};
 use crate::io::{self, IoBase, Read, ReadLeExt, Seek, Write, WriteLeExt};
@@ -647,7 +648,7 @@ where
     pub(crate) async fn truncate(&mut self) -> Result<u32, Error<E>> {
         if let Some(n) = self.cluster {
             // Move to the next cluster
-            self.next();
+            self.next().await;
             // Mark previous cluster as end of chain
             write_fat(self.fat.borrow_mut(), self.fat_type, n, FatValue::EndOfChain).await?;
             // Free rest of chain
@@ -660,7 +661,7 @@ where
     pub(crate) async fn free(&mut self) -> Result<u32, Error<E>> {
         let mut num_free = 0;
         while let Some(n) = self.cluster {
-            self.next();
+            self.next().await;
             write_fat(self.fat.borrow_mut(), self.fat_type, n, FatValue::Free).await?;
             num_free += 1;
         }
@@ -668,7 +669,7 @@ where
     }
 }
 
-impl<B, E, S> Iterator for ClusterIterator<B, E, S>
+impl<B, E, S> AsyncIterator for ClusterIterator<B, E, S>
 where
     B: BorrowMut<S>,
     E: IoError,
@@ -678,22 +679,20 @@ where
 {
     type Item = Result<u32, Error<E>>;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        todo!()
-        // TODO iter
-        // if self.err {
-        //     return None;
-        // }
-        // if let Some(current_cluster) = self.cluster {
-        //     self.cluster = match get_next_cluster(self.fat.borrow_mut(), self.fat_type, current_cluster).await {
-        //         Ok(next_cluster) => next_cluster,
-        //         Err(err) => {
-        //             self.err = true;
-        //             return Some(Err(err));
-        //         }
-        //     }
-        // }
-        // self.cluster.map(Ok)
+    async fn next(&mut self) -> Option<Self::Item> {
+        if self.err {
+            return None;
+        }
+        if let Some(current_cluster) = self.cluster {
+            self.cluster = match get_next_cluster(self.fat.borrow_mut(), self.fat_type, current_cluster).await {
+                Ok(next_cluster) => next_cluster,
+                Err(err) => {
+                    self.err = true;
+                    return Some(Err(err));
+                }
+            }
+        }
+        self.cluster.map(Ok)
     }
 }
 
