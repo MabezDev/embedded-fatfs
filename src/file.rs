@@ -248,7 +248,7 @@ where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
     fn drop(&mut self) {
-        // TODO
+        // TODO drop
         // if let Err(err) = self.flush() {
         //     error!("flush failed {:?}", err);
         // }
