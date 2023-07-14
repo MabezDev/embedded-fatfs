@@ -337,15 +337,19 @@ where
     }
 }
 
-#[cfg(feature = "std")]
-impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> std::io::Read for File<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
-    async fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        Ok(Read::read(self, buf).unwrap()) // TODO map
-    }
-}
+// #[cfg(feature = "std")]
+// impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> tokio::io::AsyncRead for File<'_, IO, TP, OCC>
+// where
+//     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+// {
+//     fn poll_read(
+//         self: Pin<&mut Self>,
+//         cx: &mut Context<'_>,
+//         buf: &mut tokio::io::ReadBuf<'_>,
+//     ) -> Poll<io::Result<()>> {
+//         todo!()
+//     }
+// }
 
 impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC>
 where
@@ -419,23 +423,23 @@ where
     }
 }
 
-#[cfg(feature = "std")]
-impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> std::io::Write for File<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
-    async fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        Ok(Write::write(self, buf).unwrap()) // TODO handle
-    }
+// #[cfg(feature = "std")]
+// impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> std::io::Write for File<'_, IO, TP, OCC>
+// where
+//     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+// {
+//     async fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+//         Ok(Write::write(self, buf).unwrap()) // TODO handle
+//     }
 
-    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
-        Ok(Write::write_all(self, buf).unwrap()) // TODO handle
-    }
+//     fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
+//         Ok(Write::write_all(self, buf).unwrap()) // TODO handle
+//     }
 
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(Write::flush(self).unwrap()) // TODO handle
-    }
-}
+//     fn flush(&mut self) -> std::io::Result<()> {
+//         Ok(Write::flush(self).unwrap()) // TODO handle
+//     }
+// }
 
 impl<IO: ReadWriteSeek, TP, OCC> Seek for File<'_, IO, TP, OCC>
 where

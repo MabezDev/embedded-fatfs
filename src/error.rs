@@ -6,9 +6,6 @@ pub use embedded_io::ErrorType as IoBase;
 use embedded_io::WriteAllError;
 
 
-#[cfg(feature = "std")]
-use crate::io::StdErrWrapper;
-
 /// Error enum with all errors that can be returned by functions from this crate
 ///
 /// Generic parameter `T` is a type of external error returned by the user provided storage
@@ -87,24 +84,6 @@ impl<T: IoError> From<WriteAllError<T>> for Error<T> {
     }
 }
 
-#[cfg(feature = "std")]
-impl From<Error<StdErrWrapper>> for std::io::Error {
-    fn from(error: Error<StdErrWrapper>) -> Self {
-        match error {
-            Error::Io(io_error) => io_error.into(),
-            Error::UnexpectedEof | Error::NotEnoughSpace => Self::new(std::io::ErrorKind::UnexpectedEof, error),
-            Error::WriteZero => Self::new(std::io::ErrorKind::WriteZero, error),
-            Error::InvalidInput
-            | Error::InvalidFileNameLength
-            | Error::UnsupportedFileNameCharacter
-            | Error::DirectoryIsNotEmpty => Self::new(std::io::ErrorKind::InvalidInput, error),
-            Error::NotFound => Self::new(std::io::ErrorKind::NotFound, error),
-            Error::AlreadyExists => Self::new(std::io::ErrorKind::AlreadyExists, error),
-            Error::CorruptedFileSystem => Self::new(std::io::ErrorKind::InvalidData, error),
-        }
-    }
-}
-
 impl<T: core::fmt::Display> core::fmt::Display for Error<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -120,30 +99,5 @@ impl<T: core::fmt::Display> core::fmt::Display for Error<T> {
             Error::AlreadyExists => write!(f, "File or directory already exists"),
             Error::CorruptedFileSystem => write!(f, "Corrupted file system"),
         }
-    }
-}
-
-#[cfg(feature = "std")]
-impl<T: std::error::Error + 'static> std::error::Error for Error<T> {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        if let Error::Io(io_error) = self {
-            Some(io_error)
-        } else {
-            None
-        }
-    }
-}
-
-#[cfg(feature = "std")]
-impl core::fmt::Display for StdErrWrapper {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "pls implement")
-    }
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for StdErrWrapper {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        None
     }
 }

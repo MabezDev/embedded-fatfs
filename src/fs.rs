@@ -9,6 +9,8 @@ use core::u32;
 
 #[cfg(all(not(feature = "std"), feature = "alloc", feature = "lfn"))]
 use alloc::string::String;
+#[cfg(feature = "std")]
+use embedded_io_adapters::tokio_1::FromTokio;
 use embedded_io::WriteAllError;
 
 use crate::boot_sector::{format_boot_sector, BiosParameterBlock, BootSector};
@@ -355,9 +357,9 @@ where
 }
 
 #[cfg(feature = "std")]
-impl<T: std::io::Read + std::io::Write + std::io::Seek> IntoStorage<io::StdIoWrapper<T>> for T {
-    fn into_storage(self) -> io::StdIoWrapper<Self> {
-        io::StdIoWrapper::new(self)
+impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + tokio::io::AsyncSeek + Unpin> IntoStorage<FromTokio<T>> for T {
+    fn into_storage(self) -> FromTokio<Self> {
+        FromTokio::new(self)
     }
 }
 
@@ -684,7 +686,7 @@ where
     pub async fn read_volume_label_from_root_dir(&self) -> Result<Option<String>, Error<IO::Error>> {
         // Note: DirEntry::file_short_name() cannot be used because it interprets name as 8.3
         // (adds dot before an extension)
-        let volume_label_opt = self.read_volume_label_from_root_dir_as_bytes()?;
+        let volume_label_opt = self.read_volume_label_from_root_dir_as_bytes().await?;
         volume_label_opt.map_or(Ok(None), |volume_label| {
             // Strip label padding
             let len = volume_label

@@ -17,7 +17,7 @@ exclude = [
 
 [features]
 # Use Rust std library
-std = ["embedded-io/std"]
+std = ["embedded-io/std", "dep:tokio", "dep:embedded-io-adapters"]
 # LFN (Long File Name) support
 lfn = []
 # Use dynamic allocation. When used without std please enable core_io/collections
@@ -41,10 +41,12 @@ default = ["chrono", "std", "alloc", "lfn", "unicode", "log_level_trace"]
 [dependencies]
 bitflags = "1.0"
 log = "0.4"
-# embedded-io = {version = "0.5", git = "https://github.com/rust-embedded/embedded-hal", rev = "6e8bd141501fbf489ca47ed48bf5491b2eb0705e" }
-embedded-io = {version = "0.5", git = "https://github.com/rust-embedded/embedded-hal", rev = "6e8bd141501fbf489ca47ed48bf5491b2eb0705e", package = "embedded-io-async" }
+embedded-io = {version = "0.5", git = "https://github.com/mabezdev/embedded-hal", branch = "missing-std-io-error-impls", package = "embedded-io-async" }
+embedded-io-adapters = {version = "0.1", git = "https://github.com/mabezdev/embedded-hal", branch = "missing-std-io-error-impls", package = "embedded-io-adapters", features = ["tokio-1"], optional = true }
 chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
+tokio = { version = "1", default-features = false, optional = true }
 
 [dev-dependencies]
 env_logger = "0.9"
 fscommon = "0.1"
+tokio = { version = "1", default-features = false }
