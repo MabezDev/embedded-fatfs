@@ -1,18 +1,20 @@
 use std::io;
-use std::io::prelude::*;
 
-use fatfs::{DefaultTimeProvider, LossyOemCpConverter, StdIoWrapper};
-use fscommon::BufStream;
+use fatfs::{LossyOemCpConverter, ChronoTimeProvider, Write};
+use async_iterator::Iterator as AsyncIterator;
 
 const KB: u64 = 1024;
 const MB: u64 = KB * 1024;
 const TEST_STR: &str = "Hi there Rust programmer!\n";
 
-type FileSystem =
-    fatfs::FileSystem<StdIoWrapper<BufStream<io::Cursor<Vec<u8>>>>, DefaultTimeProvider, LossyOemCpConverter>;
+type FileSystem = fatfs::FileSystem<
+    embedded_io_adapters::tokio_1::FromTokio<tokio::io::BufStream<std::io::Cursor<Vec<u8>>>>,
+    ChronoTimeProvider,
+    LossyOemCpConverter,
+>;
 
-fn basic_fs_test(fs: &FileSystem) {
-    let stats = fs.stats().expect("stats");
+async fn basic_fs_test(fs: &FileSystem) {
+    let stats = fs.stats().await.expect("stats");
     if fs.fat_type() == fatfs::FatType::Fat32 {
         // On FAT32 one cluster is allocated for root directory
         assert_eq!(stats.total_clusters(), stats.free_clusters() + 1);
@@ -21,118 +23,132 @@ fn basic_fs_test(fs: &FileSystem) {
     }
 
     let root_dir = fs.root_dir();
-    let entries = root_dir.iter().map(|r| r.unwrap()).collect::<Vec<_>>();
+    let entries = root_dir.iter().map(|r| async { r.unwrap() }).collect::<Vec<_>>().await;
     assert_eq!(entries.len(), 0);
 
-    let subdir1 = root_dir.create_dir("subdir1").expect("create_dir subdir1");
+    let subdir1 = root_dir.create_dir("subdir1").await.expect("create_dir subdir1");
     let subdir2 = root_dir
-        .create_dir("subdir1/subdir2 with long name")
+        .create_dir("subdir1/subdir2 with long name").await
         .expect("create_dir subdir2");
 
     let test_str = TEST_STR.repeat(1000);
     {
-        let mut file = subdir2.create_file("test file name.txt").expect("create file");
-        file.truncate().expect("truncate file");
-        file.write_all(test_str.as_bytes()).expect("write file").await;
+        let mut file = subdir2.create_file("test file name.txt").await.expect("create file");
+        file.truncate().await.expect("truncate file");
+        file.write_all(test_str.as_bytes()).await.expect("write file");
+        file.flush().await.unwrap(); // important, no more flush on drop :(
     }
 
     let mut file = root_dir
-        .open_file("subdir1/subdir2 with long name/test file name.txt")
+        .open_file("subdir1/subdir2 with long name/test file name.txt").await
         .unwrap();
-    let mut content = String::new();
-    file.read_to_string(&mut content).expect("read_to_string");
-    assert_eq!(content, test_str);
+    let content = read_to_end(&mut file).await.unwrap();
+    assert_eq!(core::str::from_utf8(&content).unwrap(), test_str);
 
-    let filenames = root_dir.iter().map(|r| r.unwrap().file_name()).collect::<Vec<String>>();
+    let filenames = root_dir.iter().map(|r| async { r.unwrap().file_name() }).collect::<Vec<String>>().await;
     assert_eq!(filenames, ["subdir1"]);
 
-    let filenames = subdir2.iter().map(|r| r.unwrap().file_name()).collect::<Vec<String>>();
+    let filenames = subdir2.iter().map(|r| async { r.unwrap().file_name() }).collect::<Vec<String>>().await;
     assert_eq!(filenames, [".", "..", "test file name.txt"]);
 
     subdir1
-        .rename("subdir2 with long name/test file name.txt", &root_dir, "new-name.txt")
+        .rename("subdir2 with long name/test file name.txt", &root_dir, "new-name.txt").await
         .expect("rename");
 
-    let filenames = subdir2.iter().map(|r| r.unwrap().file_name()).collect::<Vec<String>>();
+    let filenames = subdir2.iter().map(|r| async { r.unwrap().file_name() }).collect::<Vec<String>>().await;
     assert_eq!(filenames, [".", ".."]);
 
-    let filenames = root_dir.iter().map(|r| r.unwrap().file_name()).collect::<Vec<String>>();
+    let filenames = root_dir.iter().map(|r| async { r.unwrap().file_name() }).collect::<Vec<String>>().await;
     assert_eq!(filenames, ["subdir1", "new-name.txt"]);
 }
 
-fn test_format_fs(opts: fatfs::FormatVolumeOptions, total_bytes: u64) -> FileSystem {
+async fn test_format_fs(opts: fatfs::FormatVolumeOptions, total_bytes: u64) -> FileSystem {
     let _ = env_logger::builder().is_test(true).try_init();
     // Init storage to 0xD1 bytes (value has been choosen to be parsed as normal file)
     let storage_vec: Vec<u8> = vec![0xD1_u8; total_bytes as usize];
     let storage_cur = io::Cursor::new(storage_vec);
-    let mut buffered_stream = fatfs::StdIoWrapper::from(BufStream::new(storage_cur));
-    fatfs::format_volume(&mut buffered_stream, opts).expect("format volume");
+    let mut buffered_stream = embedded_io_adapters::tokio_1::FromTokio::new(tokio::io::BufStream::new(storage_cur));
+    fatfs::format_volume(&mut buffered_stream, opts).await.expect("format volume");
 
-    let fs = fatfs::FileSystem::new(buffered_stream, fatfs::FsOptions::new()).expect("open fs");
-    basic_fs_test(&fs);
+    let fs = fatfs::FileSystem::new(buffered_stream, fatfs::FsOptions::new()).await.expect("open fs");
+    basic_fs_test(&fs).await;
     fs
 }
 
-#[test]
-fn test_format_1mb() {
+#[tokio::test]
+async fn test_format_1mb() {
     let total_bytes = MB;
     let opts = fatfs::FormatVolumeOptions::new();
-    let fs = test_format_fs(opts, total_bytes);
+    let fs = test_format_fs(opts, total_bytes).await;
     assert_eq!(fs.fat_type(), fatfs::FatType::Fat12);
 }
 
-#[test]
-fn test_format_8mb_1fat() {
+#[tokio::test]
+async fn test_format_8mb_1fat() {
     let total_bytes = 8 * MB;
     let opts = fatfs::FormatVolumeOptions::new().fats(1);
-    let fs = test_format_fs(opts, total_bytes);
+    let fs = test_format_fs(opts, total_bytes).await;
     assert_eq!(fs.fat_type(), fatfs::FatType::Fat16);
 }
 
-#[test]
-fn test_format_50mb() {
+#[tokio::test]
+async fn test_format_50mb() {
     let total_bytes = 50 * MB;
     let opts = fatfs::FormatVolumeOptions::new();
-    let fs = test_format_fs(opts, total_bytes);
+    let fs = test_format_fs(opts, total_bytes).await;
     assert_eq!(fs.fat_type(), fatfs::FatType::Fat16);
 }
 
-#[test]
-fn test_format_2gb_512sec() {
+#[tokio::test]
+async fn test_format_2gb_512sec() {
     let total_bytes = 2 * 1024 * MB;
     let opts = fatfs::FormatVolumeOptions::new();
-    let fs = test_format_fs(opts, total_bytes);
+    let fs = test_format_fs(opts, total_bytes).await;
     assert_eq!(fs.fat_type(), fatfs::FatType::Fat32);
 }
 
-#[test]
-fn test_format_1gb_4096sec() {
+#[tokio::test]
+async fn test_format_1gb_4096sec() {
     let total_bytes = 1024 * MB;
     let opts = fatfs::FormatVolumeOptions::new().bytes_per_sector(4096);
-    let fs = test_format_fs(opts, total_bytes);
+    let fs = test_format_fs(opts, total_bytes).await;
     assert_eq!(fs.fat_type(), fatfs::FatType::Fat32);
 }
 
-#[test]
-fn test_format_empty_volume_label() {
+#[tokio::test]
+async fn test_format_empty_volume_label() {
     let total_bytes = 2 * 1024 * MB;
     let opts = fatfs::FormatVolumeOptions::new();
-    let fs = test_format_fs(opts, total_bytes);
+    let fs = test_format_fs(opts, total_bytes).await;
     assert_eq!(fs.volume_label(), "NO NAME");
-    assert_eq!(fs.read_volume_label_from_root_dir().unwrap(), None);
+    assert_eq!(fs.read_volume_label_from_root_dir().await.unwrap(), None);
 }
 
-#[test]
-fn test_format_volume_label_and_id() {
+#[tokio::test]
+async fn test_format_volume_label_and_id() {
     let total_bytes = 2 * 1024 * MB;
     let opts = fatfs::FormatVolumeOptions::new()
         .volume_id(1234)
         .volume_label(*b"VOLUMELABEL");
-    let fs = test_format_fs(opts, total_bytes);
+    let fs = test_format_fs(opts, total_bytes).await;
     assert_eq!(fs.volume_label(), "VOLUMELABEL");
     assert_eq!(
-        fs.read_volume_label_from_root_dir().unwrap(),
+        fs.read_volume_label_from_root_dir().await.unwrap(),
         Some("VOLUMELABEL".to_string())
     );
     assert_eq!(fs.volume_id(), 1234);
+}
+
+async fn read_to_end<IO: embedded_io::Read>(io: &mut IO) -> Result<Vec<u8>, IO::Error> {
+    let mut buf = Vec::new();
+    loop {
+        let mut tmp = [0; 256];
+        match io.read(&mut tmp).await {
+            Ok(0) => break,
+            Ok(n) => buf.extend(&tmp[..n]),
+            Err(e) => return Err(e),
+        }
+    }
+
+    Ok(buf)
 }

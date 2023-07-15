@@ -50,6 +50,6 @@ async-iterator = { version = "2.0.0", git = "https://github.com/MabezDev/async-i
 [dev-dependencies]
 env_logger = "0.9"
 fscommon = "0.1"
-tokio = { version = "1", default-features = false, features = ["fs", "rt", "macros"] }
+tokio = { version = "1", default-features = false, features = ["fs", "rt", "macros", "io-util"] }
 async-iterator = { version = "2.0.0", git = "https://github.com/MabezDev/async-iterator", branch = "no-std-support" }
 anyhow = "1"

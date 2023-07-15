@@ -306,22 +306,24 @@ where
     /// * `Error::NotEnoughSpace` will be returned if there is not enough free space to create a new file.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub async fn create_file(&self, path: &str) -> Result<File<'a, IO, TP, OCC>, Error<IO::Error>> {
-        trace!("Dir::create_file {}", path);
+        log::info!("Dir::create_file {}", path);
         let mut split = split_path(path);
-        let mut e = self.find_entry(split.0, Some(true), None).await?;
+        let mut e = self.clone();
         loop {
             let (name, rest_opt) = split;
             match rest_opt {
                 Some(rest) => {
-                    e = e.to_dir().find_entry(name, Some(true), None).await?;
                     split = split_path(rest);
+                    e = e.find_entry(name, Some(true), None).await?.to_dir();
                 },
-                None => break,
+                None => {
+                    break;
+                },
             }
         }
 
         // this is final filename in the path
-        let parent = e.to_dir();
+        let parent = e;
         let (name, _) = split;
         let r = parent.check_for_existence(name, Some(false)).await?;
         match r {
@@ -351,22 +353,22 @@ where
     pub async fn create_dir(&self, path: &str) -> Result<Self, Error<IO::Error>> {
         trace!("Dir::create_dir {}", path);
         let mut split = split_path(path);
-        let mut e = self.find_entry(split.0, Some(true), None).await?;
+        let mut e = self.clone();
         loop {
             let (name, rest_opt) = split;
             match rest_opt {
                 Some(rest) => {
-                    e = e.to_dir().find_entry(name, Some(true), None).await?;
                     split = split_path(rest);
+                    e = e.find_entry(name, Some(true), None).await?.to_dir();
                 },
-                None => break,
+                None => {
+                    break;
+                },
             }
         }
 
         // this is final filename in the path
-        let e = e.to_dir();
         let (name, _) = split;
-        // this is final filename in the path
         let r = e.check_for_existence(name, Some(true)).await?;
         match r {
             // directory does not exist - create it
@@ -426,20 +428,22 @@ where
         
         // traverse path
         let mut split = split_path(path);
-        let mut e = self.find_entry(split.0, Some(true), None).await?;
+        let mut e = self.clone();
         loop {
             let (name, rest_opt) = split;
             match rest_opt {
                 Some(rest) => {
-                    e = e.to_dir().find_entry(name, Some(true), None).await?;
                     split = split_path(rest);
+                    e = e.find_entry(name, Some(true), None).await?.to_dir();
                 },
-                None => break,
+                None => {
+                    break;
+                },
             }
         }
 
         // this is final filename in the path
-        let parent = e.to_dir();
+        let parent = e;
         let (name, _) = split;
 
         // in case of directory check if it is empty
@@ -485,16 +489,15 @@ where
         trace!("Dir::rename {} {}", src_path, dst_path);
         // traverse source path
         let mut split_src = split_path(src_path);
-        let mut e_src = self.find_entry(split_src.0, Some(true), None).await?;
+        let mut e_src = self.clone();
         loop {
             let (name, rest_opt) = split_src;
             match rest_opt {
                 Some(rest) => {
-                    e_src = e_src.to_dir().find_entry(name, Some(true), None).await?;
                     split_src = split_path(rest);
+                    e_src = e_src.find_entry(name, Some(true), None).await?.to_dir();
                 },
                 None => {
-                    e_src.to_dir().rename_internal(name, dst_dir, dst_path).await?;
                     break;
                 },
             }
@@ -502,23 +505,21 @@ where
 
         // traverse destination path
         let mut split_dst = split_path(dst_path);
-        let mut e_dst = self.find_entry(split_dst.0, Some(true), None).await?;
+        let mut e_dst = self.clone();
         loop {
             let (name, rest_opt) = split_dst;
             match rest_opt {
                 Some(rest) => {
-                    e_dst = e_dst.to_dir().find_entry(name, Some(true), None).await?;
                     split_dst = split_path(rest);
+                    e_dst = e_dst.find_entry(name, Some(true), None).await?.to_dir();
                 },
                 None => {
-                    let e = e_dst.to_dir();
-                    e.rename_internal(name, &e, dst_path).await?;
                     break;
                 },
             }
         }
-        
-        Ok(())
+
+        e_src.rename_internal(split_src.0, &dst_dir, split_dst.0).await
     }
 
     async fn rename_internal(
