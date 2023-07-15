@@ -482,7 +482,6 @@ where
     /// * `Error::AlreadyExists` will be returned if `dst_path` points to an existing directory entry.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub async fn rename(&self, src_path: &str, dst_dir: &Dir<'_, IO, TP, OCC>, dst_path: &str) -> Result<(), Error<IO::Error>> {
-        // TODO this does not feel write, test this properly
         trace!("Dir::rename {} {}", src_path, dst_path);
         // traverse source path
         let mut split_src = split_path(src_path);
