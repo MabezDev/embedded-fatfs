@@ -45,8 +45,10 @@ embedded-io = {version = "0.5", git = "https://github.com/mabezdev/embedded-hal"
 embedded-io-adapters = {version = "0.1", git = "https://github.com/mabezdev/embedded-hal", branch = "missing-std-io-error-impls", package = "embedded-io-adapters", features = ["tokio-1"], optional = true }
 chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
 tokio = { version = "1", default-features = false, optional = true }
+async-iterator = { version = "2.0.0", git = "https://github.com/MabezDev/async-iterator", branch = "no-std-support", default-features = false }
 
 [dev-dependencies]
 env_logger = "0.9"
 fscommon = "0.1"
 tokio = { version = "1", default-features = false }
+async-iterator = { version = "2.0.0", git = "https://github.com/MabezDev/async-iterator", branch = "no-std-support" }

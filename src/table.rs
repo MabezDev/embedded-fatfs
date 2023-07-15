@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 
 use embedded_io::WriteAllError;
 
-use crate::AsyncIterator;
+use async_iterator::Iterator as AsyncIterator;
 use crate::error::{Error, IoError, ReadExactError};
 use crate::fs::{FatType, FsStatusFlags};
 use crate::io::{self, IoBase, Read, ReadLeExt, Seek, Write, WriteLeExt};

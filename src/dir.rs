@@ -10,7 +10,7 @@ use core::str;
 #[cfg(feature = "lfn")]
 use core::{iter, slice};
 
-use crate::AsyncIterator;
+use async_iterator::Iterator as AsyncIterator;
 use crate::dir_entry::{
     DirEntry, DirEntryData, DirFileEntryData, DirLfnEntryData, FileAttributes, ShortName, DIR_ENTRY_SIZE,
 };

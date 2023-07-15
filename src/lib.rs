@@ -81,10 +81,5 @@ pub use crate::file::*;
 pub use crate::fs::*;
 pub use crate::io::*;
 pub use crate::time::*;
-
-
-pub(crate) trait AsyncIterator {
-    type Item;
-
-    async fn next(&mut self) -> Option<Self::Item>;
-}
+// re-export async iterator
+pub use async_iterator;
