@@ -101,3 +101,14 @@ impl<T: core::fmt::Display> core::fmt::Display for Error<T> {
         }
     }
 }
+
+#[cfg(feature = "std")]
+impl<T: std::error::Error + 'static> std::error::Error for Error<T> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        if let Error::Io(io_error) = self {
+            Some(io_error)
+        } else {
+            None
+        }
+    }
+}

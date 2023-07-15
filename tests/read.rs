@@ -1,291 +1,306 @@
-use std::fs;
-use std::io::prelude::*;
 use std::str;
 
-use fatfs::{DefaultTimeProvider, FatType, FsOptions, LossyOemCpConverter, Seek, SeekFrom, StdIoWrapper};
-use fscommon::BufStream;
+use async_iterator::Iterator;
+use fatfs::{ChronoTimeProvider, FatType, FsOptions, LossyOemCpConverter, Read, Seek, SeekFrom};
 
 const TEST_TEXT: &str = "Rust is cool!\n";
 const FAT12_IMG: &str = "resources/fat12.img";
 const FAT16_IMG: &str = "resources/fat16.img";
 const FAT32_IMG: &str = "resources/fat32.img";
 
-type FileSystem = fatfs::FileSystem<StdIoWrapper<BufStream<fs::File>>, DefaultTimeProvider, LossyOemCpConverter>;
+type FileSystem = fatfs::FileSystem<
+    embedded_io_adapters::tokio_1::FromTokio<tokio::fs::File>,
+    ChronoTimeProvider,
+    LossyOemCpConverter,
+>;
 
-fn call_with_fs<F: Fn(FileSystem) -> ()>(f: F, filename: &str) {
+async fn create_fs(name: &str) -> FileSystem {
     let _ = env_logger::builder().is_test(true).try_init();
-    let file = fs::File::open(filename).unwrap();
-    let buf_file = BufStream::new(file);
-    let fs = FileSystem::new(buf_file, FsOptions::new()).unwrap();
-    f(fs);
+    let file = tokio::fs::File::open(name).await.unwrap();
+    fatfs::FileSystem::new(file, FsOptions::new()).await.unwrap()
 }
 
-fn test_root_dir(fs: FileSystem) {
+async fn test_root_dir(fs: FileSystem) {
     let root_dir = fs.root_dir();
-    let entries = root_dir.iter().map(|r| r.unwrap()).collect::<Vec<_>>();
+    let entries = root_dir.iter().map(|r| async { r.unwrap() }).collect::<Vec<_>>().await;
     let short_names = entries.iter().map(|e| e.short_file_name()).collect::<Vec<String>>();
     assert_eq!(short_names, ["LONG.TXT", "SHORT.TXT", "VERY", "VERY-L~1"]);
     let names = entries.iter().map(|e| e.file_name()).collect::<Vec<String>>();
     assert_eq!(names, ["long.txt", "short.txt", "very", "very-long-dir-name"]);
     // Try read again
-    let names2 = root_dir.iter().map(|r| r.unwrap().file_name()).collect::<Vec<String>>();
+    let names2 = root_dir
+        .iter()
+        .map(|r| async { r.unwrap().file_name() })
+        .collect::<Vec<String>>()
+        .await;
     assert_eq!(names2, names);
 }
 
-#[test]
-fn test_root_dir_fat12() {
-    call_with_fs(test_root_dir, FAT12_IMG)
+#[tokio::test]
+async fn test_root_dir_fat12() {
+    test_root_dir(create_fs(FAT12_IMG).await).await
 }
 
-#[test]
-fn test_root_dir_fat16() {
-    call_with_fs(test_root_dir, FAT16_IMG)
+#[tokio::test]
+async fn test_root_dir_fat16() {
+    test_root_dir(create_fs(FAT16_IMG).await).await
 }
 
-#[test]
-fn test_root_dir_fat32() {
-    call_with_fs(test_root_dir, FAT32_IMG)
+#[tokio::test]
+async fn test_root_dir_fat32() {
+    test_root_dir(create_fs(FAT32_IMG).await).await
 }
 
-fn test_read_seek_short_file(fs: FileSystem) {
+async fn test_read_seek_short_file(fs: FileSystem) {
     let root_dir = fs.root_dir();
-    let mut short_file = root_dir.open_file("short.txt").unwrap();
-    let mut buf = Vec::new();
-    short_file.read_to_end(&mut buf).unwrap();
+    let mut short_file = root_dir.open_file("short.txt").await.unwrap();
+    let buf = read_to_end(&mut short_file).await.unwrap();
     assert_eq!(str::from_utf8(&buf).unwrap(), TEST_TEXT);
 
-    assert_eq!(short_file.seek(SeekFrom::Start(5)).unwrap(), 5).await;
+    assert_eq!(short_file.seek(SeekFrom::Start(5)).await.unwrap(), 5);
     let mut buf2 = [0; 5];
-    short_file.read_exact(&mut buf2).unwrap().await;
+    short_file.read_exact(&mut buf2).await.unwrap();
     assert_eq!(str::from_utf8(&buf2).unwrap(), &TEST_TEXT[5..10]);
 
-    assert_eq!(short_file.seek(SeekFrom::Start(1000)).unwrap(), TEST_TEXT.len() as u64).await;
+    assert_eq!(
+        short_file.seek(SeekFrom::Start(1000)).await.unwrap(),
+        TEST_TEXT.len() as u64
+    );
     let mut buf2 = [0; 5];
-    assert_eq!(short_file.read(&mut buf2).unwrap(), 0);
+    assert_eq!(short_file.read(&mut buf2).await.unwrap(), 0);
 }
 
-#[test]
-fn test_read_seek_short_file_fat12() {
-    call_with_fs(test_read_seek_short_file, FAT12_IMG)
+#[tokio::test]
+async fn test_read_seek_short_file_fat12() {
+    test_read_seek_short_file(create_fs(FAT12_IMG).await).await
 }
 
-#[test]
-fn test_read_seek_short_file_fat16() {
-    call_with_fs(test_read_seek_short_file, FAT16_IMG)
+#[tokio::test]
+async fn test_read_seek_short_file_fat16() {
+    test_read_seek_short_file(create_fs(FAT16_IMG).await).await
 }
 
-#[test]
-fn test_read_seek_short_file_fat32() {
-    call_with_fs(test_read_seek_short_file, FAT32_IMG)
+#[tokio::test]
+async fn test_read_seek_short_file_fat32() {
+    test_read_seek_short_file(create_fs(FAT32_IMG).await).await
 }
 
-fn test_read_long_file(fs: FileSystem) {
+async fn test_read_long_file(fs: FileSystem) {
     let root_dir = fs.root_dir();
-    let mut long_file = root_dir.open_file("long.txt").unwrap();
-    let mut buf = Vec::new();
-    long_file.read_to_end(&mut buf).unwrap();
+    let mut long_file = root_dir.open_file("long.txt").await.unwrap();
+    let mut buf = read_to_end(&mut long_file).await.unwrap();
     assert_eq!(str::from_utf8(&buf).unwrap(), TEST_TEXT.repeat(1000));
 
-    assert_eq!(long_file.seek(SeekFrom::Start(2017)).unwrap(), 2017).await;
+    assert_eq!(long_file.seek(SeekFrom::Start(2017)).await.unwrap(), 2017);
     buf.clear();
     let mut buf2 = [0; 10];
-    long_file.read_exact(&mut buf2).unwrap().await;
+    long_file.read_exact(&mut buf2).await.unwrap();
     assert_eq!(str::from_utf8(&buf2).unwrap(), &TEST_TEXT.repeat(1000)[2017..2027]);
 }
 
-#[test]
-fn test_read_long_file_fat12() {
-    call_with_fs(test_read_long_file, FAT12_IMG)
+#[tokio::test]
+async fn test_read_long_file_fat12() {
+    test_read_long_file(create_fs(FAT12_IMG).await).await
 }
 
-#[test]
-fn test_read_long_file_fat16() {
-    call_with_fs(test_read_long_file, FAT16_IMG)
+#[tokio::test]
+async fn test_read_long_file_fat16() {
+    test_read_long_file(create_fs(FAT16_IMG).await).await
 }
 
-#[test]
-fn test_read_long_file_fat32() {
-    call_with_fs(test_read_long_file, FAT32_IMG)
+#[tokio::test]
+async fn test_read_long_file_fat32() {
+    test_read_long_file(create_fs(FAT32_IMG).await).await
 }
 
-fn test_get_dir_by_path(fs: FileSystem) {
+async fn test_get_dir_by_path(fs: FileSystem) {
     let root_dir = fs.root_dir();
-    let dir = root_dir.open_dir("very/long/path/").unwrap();
-    let names = dir.iter().map(|r| r.unwrap().file_name()).collect::<Vec<String>>();
+    let dir = root_dir.open_dir("very/long/path/").await.unwrap();
+    let names = dir
+        .iter()
+        .map(|r| async { r.unwrap().file_name() })
+        .collect::<Vec<String>>()
+        .await;
     assert_eq!(names, [".", "..", "test.txt"]);
 
-    let dir2 = root_dir.open_dir("very/long/path/././.").unwrap();
-    let names2 = dir2.iter().map(|r| r.unwrap().file_name()).collect::<Vec<String>>();
+    let dir2 = root_dir.open_dir("very/long/path/././.").await.unwrap();
+    let names2 = dir2
+        .iter()
+        .map(|r| async { r.unwrap().file_name() })
+        .collect::<Vec<String>>()
+        .await;
     assert_eq!(names2, [".", "..", "test.txt"]);
 
-    let root_dir2 = root_dir.open_dir("very/long/path/../../..").unwrap();
+    let root_dir2 = root_dir.open_dir("very/long/path/../../..").await.unwrap();
     let root_names = root_dir2
         .iter()
-        .map(|r| r.unwrap().file_name())
-        .collect::<Vec<String>>();
-    let root_names2 = root_dir.iter().map(|r| r.unwrap().file_name()).collect::<Vec<String>>();
+        .map(|r| async { r.unwrap().file_name() })
+        .collect::<Vec<String>>()
+        .await;
+    let root_names2 = root_dir
+        .iter()
+        .map(|r| async { r.unwrap().file_name() })
+        .collect::<Vec<String>>()
+        .await;
     assert_eq!(root_names, root_names2);
 
-    root_dir.open_dir("VERY-L~1").unwrap();
+    root_dir.open_dir("VERY-L~1").await.unwrap();
 }
 
-#[test]
-fn test_get_dir_by_path_fat12() {
-    call_with_fs(test_get_dir_by_path, FAT12_IMG)
+#[tokio::test]
+async fn test_get_dir_by_path_fat12() {
+    test_get_dir_by_path(create_fs(FAT12_IMG).await).await
 }
 
-#[test]
-fn test_get_dir_by_path_fat16() {
-    call_with_fs(test_get_dir_by_path, FAT16_IMG)
+#[tokio::test]
+async fn test_get_dir_by_path_fat16() {
+    test_get_dir_by_path(create_fs(FAT16_IMG).await).await
 }
 
-#[test]
-fn test_get_dir_by_path_fat32() {
-    call_with_fs(test_get_dir_by_path, FAT32_IMG)
+#[tokio::test]
+async fn test_get_dir_by_path_fat32() {
+    test_get_dir_by_path(create_fs(FAT32_IMG).await).await
 }
 
-fn test_get_file_by_path(fs: FileSystem) {
+async fn test_get_file_by_path(fs: FileSystem) {
     let root_dir = fs.root_dir();
-    let mut file = root_dir.open_file("very/long/path/test.txt").unwrap();
-    let mut buf = Vec::new();
-    file.read_to_end(&mut buf).unwrap();
+    let mut file = root_dir.open_file("very/long/path/test.txt").await.unwrap();
+    let buf = read_to_end(&mut file).await.unwrap();
     assert_eq!(str::from_utf8(&buf).unwrap(), TEST_TEXT);
 
     let mut file = root_dir
         .open_file("very-long-dir-name/very-long-file-name.txt")
+        .await
         .unwrap();
-    let mut buf = Vec::new();
-    file.read_to_end(&mut buf).unwrap();
+    let buf = read_to_end(&mut file).await.unwrap();
     assert_eq!(str::from_utf8(&buf).unwrap(), TEST_TEXT);
 
-    root_dir.open_file("VERY-L~1/VERY-L~1.TXT").unwrap();
+    root_dir.open_file("VERY-L~1/VERY-L~1.TXT").await.unwrap();
 
     // try opening dir as file
-    assert!(root_dir.open_file("very/long/path").is_err());
+    assert!(root_dir.open_file("very/long/path").await.is_err());
     // try opening file as dir
-    assert!(root_dir.open_dir("very/long/path/test.txt").is_err());
+    assert!(root_dir.open_dir("very/long/path/test.txt").await.is_err());
     // try using invalid path containing file as non-last component
-    assert!(root_dir.open_file("very/long/path/test.txt/abc").is_err());
-    assert!(root_dir.open_dir("very/long/path/test.txt/abc").is_err());
+    assert!(root_dir.open_file("very/long/path/test.txt/abc").await.is_err());
+    assert!(root_dir.open_dir("very/long/path/test.txt/abc").await.is_err());
 }
 
-#[test]
-fn test_get_file_by_path_fat12() {
-    call_with_fs(test_get_file_by_path, FAT12_IMG)
+#[tokio::test]
+async fn test_get_file_by_path_fat12() {
+    test_get_file_by_path(create_fs(FAT12_IMG).await).await
 }
 
-#[test]
-fn test_get_file_by_path_fat16() {
-    call_with_fs(test_get_file_by_path, FAT16_IMG)
+#[tokio::test]
+async fn test_get_file_by_path_fat16() {
+    test_get_file_by_path(create_fs(FAT16_IMG).await).await
 }
 
-#[test]
-fn test_get_file_by_path_fat32() {
-    call_with_fs(test_get_file_by_path, FAT32_IMG)
+#[tokio::test]
+async fn test_get_file_by_path_fat32() {
+    test_get_file_by_path(create_fs(FAT32_IMG).await).await
 }
 
-fn test_volume_metadata(fs: FileSystem, fat_type: FatType) {
+async fn test_volume_metadata(fs: FileSystem, fat_type: FatType) {
     assert_eq!(fs.volume_id(), 0x1234_5678);
     assert_eq!(fs.volume_label(), "Test!");
-    assert_eq!(&fs.read_volume_label_from_root_dir().unwrap().unwrap(), "Test!");
+    assert_eq!(&fs.read_volume_label_from_root_dir().await.unwrap().unwrap(), "Test!");
     assert_eq!(fs.fat_type(), fat_type);
 }
 
-#[test]
-fn test_volume_metadata_fat12() {
-    call_with_fs(|fs| test_volume_metadata(fs, FatType::Fat12), FAT12_IMG)
+#[tokio::test]
+async fn test_volume_metadata_fat12() {
+    test_volume_metadata(create_fs(FAT12_IMG).await, FatType::Fat12).await
 }
 
-#[test]
-fn test_volume_metadata_fat16() {
-    call_with_fs(|fs| test_volume_metadata(fs, FatType::Fat16), FAT16_IMG)
+#[tokio::test]
+async fn test_volume_metadata_fat16() {
+    test_volume_metadata(create_fs(FAT16_IMG).await, FatType::Fat16).await
 }
 
-#[test]
-fn test_volume_metadata_fat32() {
-    call_with_fs(|fs| test_volume_metadata(fs, FatType::Fat32), FAT32_IMG)
+#[tokio::test]
+async fn test_volume_metadata_fat32() {
+    test_volume_metadata(create_fs(FAT32_IMG).await, FatType::Fat32).await
 }
 
-fn test_status_flags(fs: FileSystem) {
-    let status_flags = fs.read_status_flags().unwrap();
+async fn test_status_flags(fs: FileSystem) {
+    let status_flags = fs.read_status_flags().await.unwrap();
     assert_eq!(status_flags.dirty(), false);
     assert_eq!(status_flags.io_error(), false);
 }
 
-#[test]
-fn test_status_flags_fat12() {
-    call_with_fs(test_status_flags, FAT12_IMG)
+#[tokio::test]
+async fn test_status_flags_fat12() {
+    test_status_flags(create_fs(FAT12_IMG).await).await
 }
 
-#[test]
-fn test_status_flags_fat16() {
-    call_with_fs(test_status_flags, FAT16_IMG)
+#[tokio::test]
+async fn test_status_flags_fat16() {
+    test_status_flags(create_fs(FAT16_IMG).await).await
 }
 
-#[test]
-fn test_status_flags_fat32() {
-    call_with_fs(test_status_flags, FAT32_IMG)
+#[tokio::test]
+async fn test_status_flags_fat32() {
+    test_status_flags(create_fs(FAT32_IMG).await).await
 }
 
-#[test]
-fn test_stats_fat12() {
-    call_with_fs(
-        |fs| {
-            let stats = fs.stats().unwrap();
-            assert_eq!(stats.cluster_size(), 512);
-            assert_eq!(stats.total_clusters(), 1955); // 1000 * 1024 / 512 = 2000
-            assert_eq!(stats.free_clusters(), 1920);
-        },
-        FAT12_IMG,
-    )
+#[tokio::test]
+async fn test_stats_fat12() {
+    let fs = create_fs(FAT12_IMG).await;
+    let stats = fs.stats().await.unwrap();
+    assert_eq!(stats.cluster_size(), 512);
+    assert_eq!(stats.total_clusters(), 1955); // 1000 * 1024 / 512 = 2000
+    assert_eq!(stats.free_clusters(), 1920);
 }
 
-#[test]
-fn test_stats_fat16() {
-    call_with_fs(
-        |fs| {
-            let stats = fs.stats().unwrap();
-            assert_eq!(stats.cluster_size(), 512);
-            assert_eq!(stats.total_clusters(), 4927); // 2500 * 1024 / 512 = 5000
-            assert_eq!(stats.free_clusters(), 4892);
-        },
-        FAT16_IMG,
-    )
+#[tokio::test]
+async fn test_stats_fat16() {
+    let fs = create_fs(FAT16_IMG).await;
+    let stats = fs.stats().await.unwrap();
+    assert_eq!(stats.cluster_size(), 512);
+    assert_eq!(stats.total_clusters(), 4927); // 2500 * 1024 / 512 = 5000
+    assert_eq!(stats.free_clusters(), 4892);
 }
 
-#[test]
-fn test_stats_fat32() {
-    call_with_fs(
-        |fs| {
-            let stats = fs.stats().unwrap();
-            assert_eq!(stats.cluster_size(), 512);
-            assert_eq!(stats.total_clusters(), 66922); // 34000 * 1024 / 512 = 68000
-            assert_eq!(stats.free_clusters(), 66886);
-        },
-        FAT32_IMG,
-    )
+#[tokio::test]
+async fn test_stats_fat32() {
+    let fs = create_fs(FAT32_IMG).await;
+    let stats = fs.stats().await.unwrap();
+    assert_eq!(stats.cluster_size(), 512);
+    assert_eq!(stats.total_clusters(), 66922); // 34000 * 1024 / 512 = 68000
+    assert_eq!(stats.free_clusters(), 66886);
 }
 
-#[test]
-fn test_multi_thread() {
-    call_with_fs(
-        |fs| {
-            use std::sync::{Arc, Mutex};
-            use std::thread;
-            let shared_fs = Arc::new(Mutex::new(fs));
-            let mut handles = vec![];
-            for _ in 0..2 {
-                let shared_fs_cloned = Arc::clone(&shared_fs);
-                let handle = thread::spawn(move || {
-                    let fs2 = shared_fs_cloned.lock().unwrap();
-                    assert_eq!(fs2.fat_type(), FatType::Fat32);
-                });
-                handles.push(handle);
-            }
-            for handle in handles {
-                handle.join().unwrap();
-            }
-        },
-        FAT32_IMG,
-    )
+#[tokio::test]
+async fn test_multi_thread() {
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+    let fs = create_fs(FAT32_IMG).await;
+    let shared_fs = Arc::new(Mutex::new(fs));
+    let mut handles = vec![];
+    for _ in 0..2 {
+        let shared_fs_cloned = Arc::clone(&shared_fs);
+        let handle = thread::spawn(move || {
+            let fs2 = shared_fs_cloned.lock().unwrap();
+            assert_eq!(fs2.fat_type(), FatType::Fat32);
+        });
+        handles.push(handle);
+    }
+    for handle in handles {
+        handle.join().unwrap();
+    }
+}
+
+async fn read_to_end<IO: embedded_io::Read>(io: &mut IO) -> Result<Vec<u8>, IO::Error> {
+    let mut buf = Vec::new();
+    loop {
+        let mut tmp = [0; 256];
+        match io.read(&mut tmp).await {
+            Ok(0) => break,
+            Ok(n) => buf.extend(&tmp[..n]),
+            Err(e) => return Err(e),
+        }
+    }
+
+    Ok(buf)
 }

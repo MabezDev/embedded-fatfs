@@ -244,19 +244,22 @@ where
     pub async fn open_dir(&self, path: &str) -> Result<Self, Error<IO::Error>> {
         trace!("Dir::open_dir {}", path);
         let mut split = split_path(path);
-        let mut e = self.find_entry(split.0, Some(true), None).await?;
+        let mut e = self.clone();
         loop {
             let (name, rest_opt) = split;
             match rest_opt {
                 Some(rest) => {
-                    e = e.to_dir().find_entry(name, Some(true), None).await?;
                     split = split_path(rest);
+                    e = e.find_entry(name, Some(true), None).await?.to_dir();
                 },
-                None => break,
+                None => {
+                    e = e.find_entry(name, Some(true), None).await?.to_dir();
+                    break;
+                },
             }
         }
 
-        Ok(e.to_dir())
+        Ok(e)
     }
 
     /// Opens existing file.
@@ -273,21 +276,19 @@ where
     pub async fn open_file(&self, path: &str) -> Result<File<'a, IO, TP, OCC>, Error<IO::Error>> {
         trace!("Dir::open_file {}", path);
         let mut split = split_path(path);
-        let mut e = self.find_entry(split.0, Some(true), None).await?;
+        let mut e = self.clone();
         loop {
             let (name, rest_opt) = split;
             match rest_opt {
                 Some(rest) => {
-                    e = e.to_dir().find_entry(name, Some(true), None).await?;
                     split = split_path(rest);
+                    e = e.find_entry(name, Some(true), None).await?.to_dir();
                 },
-                None => break,
+                None => {
+                    return Ok(e.find_entry(name, Some(false), None).await?.to_file());
+                },
             }
         }
-
-        let parent = e.to_dir();
-        let e = parent.find_entry(split.0, Some(false), None).await?;
-        Ok(e.to_file())
     }
 
     /// Creates new or opens existing file=.

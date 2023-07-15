@@ -1,10 +1,7 @@
 use std::env;
-use std::fs::File;
-use std::io;
 
 use chrono::{DateTime, Local};
-use fatfs::{FileSystem, FsOptions};
-use fscommon::BufStream;
+use fatfs::{FileSystem, FsOptions, AsyncIterator};
 
 fn format_file_size(size: u64) -> String {
     const KB: u64 = 1024;
@@ -21,17 +18,18 @@ fn format_file_size(size: u64) -> String {
     }
 }
 
-fn main() -> io::Result<()> {
-    let file = File::open("resources/fat32.img")?;
-    let buf_rdr = BufStream::new(file);
-    let fs = FileSystem::new(buf_rdr, FsOptions::new())?;
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let file = tokio::fs::File::open("resources/fat32.img").await?;
+    let fs = FileSystem::new(file, FsOptions::new()).await?;
     let root_dir = fs.root_dir();
     let dir = match env::args().nth(1) {
         None => root_dir,
         Some(ref path) if path == "." => root_dir,
-        Some(ref path) => root_dir.open_dir(&path)?,
+        Some(ref path) => root_dir.open_dir(&path).await?,
     };
-    for r in dir.iter() {
+    let mut iter = dir.iter();
+    while let Some(r) = iter.next().await {
         let e = r?;
         let modified = DateTime::<Local>::from(e.modified())
             .format("%Y-%m-%d %H:%M:%S")
