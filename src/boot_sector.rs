@@ -816,7 +816,6 @@ pub(crate) fn format_boot_sector<E: IoError>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::io::StdErrWrapper;
     use core::u32;
 
     fn init() {
@@ -977,6 +976,19 @@ mod tests {
     fn test_format_boot_sector() {
         init();
 
+        #[derive(Debug)]
+        struct Dummy;
+
+        impl embedded_io::ErrorType for Dummy {
+            type Error = Self;
+        }
+
+        impl embedded_io::Error for Dummy {
+            fn kind(&self) -> embedded_io::ErrorKind {
+                embedded_io::ErrorKind::TimedOut
+            }
+        }
+
         let bytes_per_sector = 512_u16;
         // test all partition sizes from 1MB to 2TB (u32::MAX sectors is 2TB - 1 for 512 byte sectors)
         let mut total_sectors_vec = Vec::new();
@@ -988,9 +1000,9 @@ mod tests {
         total_sectors_vec.push(u32::MAX);
         for total_sectors in total_sectors_vec {
             let (boot, _) =
-                format_boot_sector::<StdErrWrapper>(&FormatVolumeOptions::new(), total_sectors, bytes_per_sector)
+                format_boot_sector::<Dummy>(&FormatVolumeOptions::new(), total_sectors, bytes_per_sector)
                     .expect("format_boot_sector");
-            boot.validate::<StdErrWrapper>().expect("validate");
+            boot.validate::<Dummy>().expect("validate");
         }
     }
 }

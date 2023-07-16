@@ -1,14 +1,15 @@
 use std::env;
-use std::fs;
-use std::io;
 
-use fatfs::{format_volume, FormatVolumeOptions, StdIoWrapper};
-use fscommon::BufStream;
+use embedded_io_adapters::tokio_1::FromTokio;
+use fatfs::{format_volume, FormatVolumeOptions};
+use tokio::io::BufStream;
+use tokio::fs;
 
-fn main() -> io::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let filename = env::args().nth(1).expect("image path expected");
-    let file = fs::OpenOptions::new().read(true).write(true).open(&filename)?;
+    let file = fs::OpenOptions::new().read(true).write(true).open(&filename).await?;
     let buf_file = BufStream::new(file);
-    format_volume(&mut StdIoWrapper::from(buf_file), FormatVolumeOptions::new())?;
+    format_volume(&mut FromTokio::new(buf_file), FormatVolumeOptions::new()).await?;
     Ok(())
 }

@@ -509,12 +509,13 @@ where
     }
 }
 
-#[cfg(test)]
-impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> std::io::Seek for File<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
-    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
-        Ok(Seek::seek(self, crate::StdSeekPosWrapper::from(pos).into()).unwrap()).await // TODO handle
-    }
-}
+// TODO
+// #[cfg(test)]
+// impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> std::io::Seek for File<'_, IO, TP, OCC>
+// where
+//     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+// {
+//     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+//         Ok(Seek::seek(self, crate::StdSeekPosWrapper::from(pos).into()).unwrap()).await // TODO handle
+//     }
+// }

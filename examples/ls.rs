@@ -1,7 +1,8 @@
 use std::env;
 
 use chrono::{DateTime, Local};
-use fatfs::{FileSystem, FsOptions, AsyncIterator};
+use fatfs::{FileSystem, FsOptions};
+use async_iterator::Iterator as AsyncIterator;
 
 fn format_file_size(size: u64) -> String {
     const KB: u64 = 1024;

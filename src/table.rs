@@ -698,51 +698,52 @@ where
 
 #[cfg(test)]
 mod tests {
+    use embedded_io_adapters::tokio_1::FromTokio;
+
     use super::*;
-    use io::StdIoWrapper;
     use std::io::Cursor;
 
-    fn test_fat<S: Read + Write + Seek + IoBase>(fat_type: FatType, mut cur: S)
+    async fn test_fat<S: Read + Write + Seek + IoBase>(fat_type: FatType, mut cur: S)
     where
         S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
     {
         // based on cluster maps from Wikipedia:
         // https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system#Cluster_map
-        assert_eq!(read_fat(&mut cur, fat_type, 1).ok(), Some(FatValue::EndOfChain));
-        assert_eq!(read_fat(&mut cur, fat_type, 4).ok(), Some(FatValue::Data(5)));
-        assert_eq!(read_fat(&mut cur, fat_type, 5).ok(), Some(FatValue::Data(6)));
-        assert_eq!(read_fat(&mut cur, fat_type, 8).ok(), Some(FatValue::EndOfChain));
-        assert_eq!(read_fat(&mut cur, fat_type, 9).ok(), Some(FatValue::Data(0xA)));
-        assert_eq!(read_fat(&mut cur, fat_type, 0xA).ok(), Some(FatValue::Data(0x14)));
-        assert_eq!(read_fat(&mut cur, fat_type, 0x12).ok(), Some(FatValue::Free));
-        assert_eq!(read_fat(&mut cur, fat_type, 0x17).ok(), Some(FatValue::Bad));
-        assert_eq!(read_fat(&mut cur, fat_type, 0x18).ok(), Some(FatValue::Bad));
-        assert_eq!(read_fat(&mut cur, fat_type, 0x1B).ok(), Some(FatValue::Free));
+        assert_eq!(read_fat(&mut cur, fat_type, 1).await.ok(), Some(FatValue::EndOfChain));
+        assert_eq!(read_fat(&mut cur, fat_type, 4).await.ok(), Some(FatValue::Data(5)));
+        assert_eq!(read_fat(&mut cur, fat_type, 5).await.ok(), Some(FatValue::Data(6)));
+        assert_eq!(read_fat(&mut cur, fat_type, 8).await.ok(), Some(FatValue::EndOfChain));
+        assert_eq!(read_fat(&mut cur, fat_type, 9).await.ok(), Some(FatValue::Data(0xA)));
+        assert_eq!(read_fat(&mut cur, fat_type, 0xA).await.ok(), Some(FatValue::Data(0x14)));
+        assert_eq!(read_fat(&mut cur, fat_type, 0x12).await.ok(), Some(FatValue::Free));
+        assert_eq!(read_fat(&mut cur, fat_type, 0x17).await.ok(), Some(FatValue::Bad));
+        assert_eq!(read_fat(&mut cur, fat_type, 0x18).await.ok(), Some(FatValue::Bad));
+        assert_eq!(read_fat(&mut cur, fat_type, 0x1B).await.ok(), Some(FatValue::Free));
 
-        assert_eq!(find_free_cluster(&mut cur, fat_type, 2, 0x20).ok(), Some(0x12));
-        assert_eq!(find_free_cluster(&mut cur, fat_type, 0x12, 0x20).ok(), Some(0x12));
-        assert_eq!(find_free_cluster(&mut cur, fat_type, 0x13, 0x20).ok(), Some(0x1B));
-        assert!(find_free_cluster(&mut cur, fat_type, 0x13, 0x14).is_err());
+        assert_eq!(find_free_cluster(&mut cur, fat_type, 2, 0x20).await.ok(), Some(0x12));
+        assert_eq!(find_free_cluster(&mut cur, fat_type, 0x12, 0x20).await.ok(), Some(0x12));
+        assert_eq!(find_free_cluster(&mut cur, fat_type, 0x13, 0x20).await.ok(), Some(0x1B));
+        assert!(find_free_cluster(&mut cur, fat_type, 0x13, 0x14).await.is_err());
 
-        assert_eq!(count_free_clusters(&mut cur, fat_type, 0x1E).ok(), Some(5));
+        assert_eq!(count_free_clusters(&mut cur, fat_type, 0x1E).await.ok(), Some(5));
 
         // test allocation
         assert_eq!(
-            alloc_cluster(&mut cur, fat_type, None, Some(0x13), 0x1E).ok(),
+            alloc_cluster(&mut cur, fat_type, None, Some(0x13), 0x1E).await.ok(),
             Some(0x1B)
         );
-        assert_eq!(read_fat(&mut cur, fat_type, 0x1B).ok(), Some(FatValue::EndOfChain));
+        assert_eq!(read_fat(&mut cur, fat_type, 0x1B).await.ok(), Some(FatValue::EndOfChain));
         assert_eq!(
-            alloc_cluster(&mut cur, fat_type, Some(0x1B), None, 0x1E).ok(),
+            alloc_cluster(&mut cur, fat_type, Some(0x1B), None, 0x1E).await.ok(),
             Some(0x12)
         );
-        assert_eq!(read_fat(&mut cur, fat_type, 0x1B).ok(), Some(FatValue::Data(0x12)));
-        assert_eq!(read_fat(&mut cur, fat_type, 0x12).ok(), Some(FatValue::EndOfChain));
-        assert_eq!(count_free_clusters(&mut cur, fat_type, 0x1E).ok(), Some(3));
+        assert_eq!(read_fat(&mut cur, fat_type, 0x1B).await.ok(), Some(FatValue::Data(0x12)));
+        assert_eq!(read_fat(&mut cur, fat_type, 0x12).await.ok(), Some(FatValue::EndOfChain));
+        assert_eq!(count_free_clusters(&mut cur, fat_type, 0x1E).await.ok(), Some(3));
         // test reading from iterator
         {
             let iter = ClusterIterator::<&mut S, S::Error, S>::new(&mut cur, fat_type, 0x9);
-            let actual_cluster_numbers = iter.map(Result::ok).collect::<Vec<_>>();
+            let actual_cluster_numbers = iter.map(|s| async { s.ok() }).collect::<Vec<_>>().await;
             let expected_cluster_numbers = [0xA_u32, 0x14_u32, 0x15_u32, 0x16_u32, 0x19_u32, 0x1A_u32]
                 .iter()
                 .cloned()
@@ -753,47 +754,51 @@ mod tests {
         // test truncating a chain
         {
             let mut iter = ClusterIterator::<&mut S, S::Error, S>::new(&mut cur, fat_type, 0x9);
-            assert_eq!(iter.nth(3).map(Result::ok), Some(Some(0x16)));
-            assert!(iter.truncate().is_ok());
+            iter.next().await;
+            iter.next().await;
+            iter.next().await;
+            let value = iter.next().await.unwrap().ok();
+            assert_eq!(value, Some(0x16));
+            assert!(iter.truncate().await.is_ok());
         }
-        assert_eq!(read_fat(&mut cur, fat_type, 0x16).ok(), Some(FatValue::EndOfChain));
-        assert_eq!(read_fat(&mut cur, fat_type, 0x19).ok(), Some(FatValue::Free));
-        assert_eq!(read_fat(&mut cur, fat_type, 0x1A).ok(), Some(FatValue::Free));
+        assert_eq!(read_fat(&mut cur, fat_type, 0x16).await.ok(), Some(FatValue::EndOfChain));
+        assert_eq!(read_fat(&mut cur, fat_type, 0x19).await.ok(), Some(FatValue::Free));
+        assert_eq!(read_fat(&mut cur, fat_type, 0x1A).await.ok(), Some(FatValue::Free));
         // test freeing a chain
         {
             let mut iter = ClusterIterator::<&mut S, S::Error, S>::new(&mut cur, fat_type, 0x9);
-            assert!(iter.free().is_ok());
+            assert!(iter.free().await.is_ok());
         }
-        assert_eq!(read_fat(&mut cur, fat_type, 0x9).ok(), Some(FatValue::Free));
-        assert_eq!(read_fat(&mut cur, fat_type, 0xA).ok(), Some(FatValue::Free));
-        assert_eq!(read_fat(&mut cur, fat_type, 0x14).ok(), Some(FatValue::Free));
-        assert_eq!(read_fat(&mut cur, fat_type, 0x15).ok(), Some(FatValue::Free));
-        assert_eq!(read_fat(&mut cur, fat_type, 0x16).ok(), Some(FatValue::Free));
+        assert_eq!(read_fat(&mut cur, fat_type, 0x9).await.ok(), Some(FatValue::Free));
+        assert_eq!(read_fat(&mut cur, fat_type, 0xA).await.ok(), Some(FatValue::Free));
+        assert_eq!(read_fat(&mut cur, fat_type, 0x14).await.ok(), Some(FatValue::Free));
+        assert_eq!(read_fat(&mut cur, fat_type, 0x15).await.ok(), Some(FatValue::Free));
+        assert_eq!(read_fat(&mut cur, fat_type, 0x16).await.ok(), Some(FatValue::Free));
     }
 
-    #[test]
-    fn test_fat12() {
+    #[tokio::test]
+    async fn test_fat12() {
         let fat: Vec<u8> = vec![
             0xF0, 0xFF, 0xFF, 0x03, 0x40, 0x00, 0x05, 0x60, 0x00, 0x07, 0x80, 0x00, 0xFF, 0xAF, 0x00, 0x14, 0xC0, 0x00,
             0x0D, 0xE0, 0x00, 0x0F, 0x00, 0x01, 0x11, 0xF0, 0xFF, 0x00, 0xF0, 0xFF, 0x15, 0x60, 0x01, 0x19, 0x70, 0xFF,
             0xF7, 0xAF, 0x01, 0xFF, 0x0F, 0x00, 0x00, 0x70, 0xFF, 0x00, 0x00, 0x00,
         ];
-        test_fat(FatType::Fat12, StdIoWrapper::new(Cursor::<Vec<u8>>::new(fat)));
+        test_fat(FatType::Fat12, FromTokio::new(Cursor::<Vec<u8>>::new(fat))).await;
     }
 
-    #[test]
-    fn test_fat16() {
+    #[tokio::test]
+    async fn test_fat16() {
         let fat: Vec<u8> = vec![
             0xF0, 0xFF, 0xFF, 0xFF, 0x03, 0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x00, 0x08, 0x00, 0xFF, 0xFF,
             0x0A, 0x00, 0x14, 0x00, 0x0C, 0x00, 0x0D, 0x00, 0x0E, 0x00, 0x0F, 0x00, 0x10, 0x00, 0x11, 0x00, 0xFF, 0xFF,
             0x00, 0x00, 0xFF, 0xFF, 0x15, 0x00, 0x16, 0x00, 0x19, 0x00, 0xF7, 0xFF, 0xF7, 0xFF, 0x1A, 0x00, 0xFF, 0xFF,
             0x00, 0x00, 0x00, 0x00, 0xF7, 0xFF, 0x00, 0x00, 0x00, 0x00,
         ];
-        test_fat(FatType::Fat16, StdIoWrapper::new(Cursor::<Vec<u8>>::new(fat)));
+        test_fat(FatType::Fat16, FromTokio::new(Cursor::<Vec<u8>>::new(fat))).await;
     }
 
-    #[test]
-    fn test_fat32() {
+    #[tokio::test]
+    async fn test_fat32() {
         let fat: Vec<u8> = vec![
             0xF0, 0xFF, 0xFF, 0x0F, 0xFF, 0xFF, 0xFF, 0x0F, 0xFF, 0xFF, 0xFF, 0x0F, 0x04, 0x00, 0x00, 0x00, 0x05, 0x00,
             0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x0F,
@@ -804,6 +809,6 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF7, 0xFF, 0xFF, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00,
         ];
-        test_fat(FatType::Fat32, StdIoWrapper::new(Cursor::<Vec<u8>>::new(fat)));
+        test_fat(FatType::Fat32, FromTokio::new(Cursor::<Vec<u8>>::new(fat))).await;
     }
 }

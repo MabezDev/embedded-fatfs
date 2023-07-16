@@ -13,30 +13,35 @@
 //! # Examples
 //!
 //! ```rust
-//! use std::io::prelude::*;
-//!
-//! fn main() -> std::io::Result<()> {
-//!     # std::fs::copy("resources/fat16.img", "tmp/fat.img")?;
+//! use tokio::fs;
+//! use async_iterator::Iterator;
+//! use embedded_io::Write;
+//! 
+//! #[tokio::main]
+//! async fn main() -> anyhow::Result<()> {
+//!     # fs::copy("resources/fat16.img", "tmp/fat.img").await?;
 //!     // Initialize a filesystem object
-//!     let img_file = std::fs::OpenOptions::new().read(true).write(true)
-//!         .open("tmp/fat.img")?;
-//!     let buf_stream = fscommon::BufStream::new(img_file);
-//!     let fs = fatfs::FileSystem::new(buf_stream, fatfs::FsOptions::new())?;
+//!     let img_file = fs::OpenOptions::new().read(true).write(true)
+//!         .open("tmp/fat.img").await?;
+//!     let buf_stream = tokio::io::BufStream::new(img_file);
+//!     let fs = fatfs::FileSystem::new(buf_stream, fatfs::FsOptions::new()).await?;
 //!     let root_dir = fs.root_dir();
 //!
 //!     // Write a file
-//!     root_dir.create_dir("foo")?;
-//!     let mut file = root_dir.create_file("foo/hello.txt")?;
-//!     file.truncate()?;
+//!     root_dir.create_dir("foo").await?;
+//!     let mut file = root_dir.create_file("foo/hello.txt").await?;
+//!     file.truncate().await?;
 //!     file.write_all(b"Hello World!").await?;
+//!     file.flush().await?;
 //!
 //!     // Read a directory
-//!     let dir = root_dir.open_dir("foo")?;
-//!     for r in dir.iter() {
+//!     let dir = root_dir.open_dir("foo").await?;
+//!     let mut iter = dir.iter();
+//!     while let Some(r) = iter.next().await {
 //!         let entry = r?;
 //!         println!("{}", entry.file_name());
 //!     }
-//!     # std::fs::remove_file("tmp/fat.img")?;
+//!     # fs::remove_file("tmp/fat.img").await?;
 //!     # Ok(())
 //! }
 //! ```
