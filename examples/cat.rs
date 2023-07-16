@@ -1,6 +1,6 @@
 use std::env;
 
-use fatfs::{FileSystem, FsOptions};
+use embedded_fatfs::{FileSystem, FsOptions};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

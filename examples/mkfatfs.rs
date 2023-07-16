@@ -1,7 +1,7 @@
 use std::env;
 
 use embedded_io_adapters::tokio_1::FromTokio;
-use fatfs::{format_volume, FormatVolumeOptions};
+use embedded_fatfs::{format_volume, FormatVolumeOptions};
 use tokio::io::BufStream;
 use tokio::fs;
 

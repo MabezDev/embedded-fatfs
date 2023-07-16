@@ -2,12 +2,12 @@
 //!
 //! # Usage
 //!
-//! This crate is [on crates.io](https://crates.io/crates/fatfs) and can be
+//! This crate is [on crates.io](https://crates.io/crates/embedded-fatfs) and can be
 //! used by adding `fatfs` to the dependencies in your project's `Cargo.toml`.
 //!
 //! ```toml
 //! [dependencies]
-//! fatfs = "0.4"
+//! embeded-fatfs = "0.1"
 //! ```
 //!
 //! # Examples
@@ -24,7 +24,7 @@
 //!     let img_file = fs::OpenOptions::new().read(true).write(true)
 //!         .open("tmp/fat.img").await?;
 //!     let buf_stream = tokio::io::BufStream::new(img_file);
-//!     let fs = fatfs::FileSystem::new(buf_stream, fatfs::FsOptions::new()).await?;
+//!     let fs = embedded_fatfs::FileSystem::new(buf_stream, embedded_fatfs::FsOptions::new()).await?;
 //!     let root_dir = fs.root_dir();
 //!
 //!     // Write a file
@@ -47,7 +47,7 @@
 //! ```
 
 #![crate_type = "lib"]
-#![crate_name = "fatfs"]
+#![crate_name = "embedded_fatfs"]
 #![cfg_attr(not(feature = "std"), no_std)]
 // Disable warnings to not clutter code with cfg too much
 #![cfg_attr(not(all(feature = "alloc", feature = "lfn")), allow(dead_code, unused_imports))]

@@ -1,16 +1,17 @@
-Rust FAT FS
+embedded-fatfs
 ===========
 
-[![CI Status](https://github.com/rafalh/rust-fatfs/actions/workflows/ci.yml/badge.svg)](https://github.com/rafalh/rust-fatfs/actions/workflows/ci.yml)
+[![CI Status](https://github.com/mabezdev/embedded-fatfs/actions/workflows/ci.yml/badge.svg)](https://github.com/mabezdev/embedded-fatfs/actions/workflows/ci.yml)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE.txt)
-[![crates.io](https://img.shields.io/crates/v/fatfs)](https://crates.io/crates/fatfs)
-[![Documentation](https://docs.rs/fatfs/badge.svg)](https://docs.rs/fatfs)
-[![Minimum rustc version](https://img.shields.io/badge/rustc-1.48+-yellow.svg)](https://blog.rust-lang.org/2020/11/19/Rust-1.48.html)
+[![crates.io](https://img.shields.io/crates/v/embedded-fatfs)](https://crates.io/crates/embedded-fatfs)
+[![Documentation](https://docs.rs/embedded-fatfs/badge.svg)](https://docs.rs/embedded-fatfs)
+![Minimum rustc version](https://img.shields.io/badge/rustc-nightly-yellow.svg)
 
-A FAT filesystem library implemented in Rust.
+A FAT filesystem library implemented in Rust. Built on the shoulders of the amazing [rust-fatfs](https://github.com/rafalh/rust-fatfs) crate by [@rafalh](https://github.com/rafalh).
 
-Features:
-* read/write file using standard Read/Write traits
+## Features
+* async
+* read/write file using embedded-io-async Read/Write traits
 * read directory contents
 * create/remove file or directory
 * rename/move file or directory
@@ -18,40 +19,23 @@ Features:
 * format volume
 * FAT12, FAT16, FAT32 compatibility
 * LFN (Long File Names) extension is supported
-* Basic no_std environment support
+* `no_std` environment support
 * logging configurable at compile time using cargo features
 
-Usage
------
+## Porting from rust-fatfs to embedded-fatfs
 
-Add this to your `Cargo.toml`:
+There a are a few key differences between the crates:
 
-    [dependencies]
-    fatfs = "0.4"
+- embedded-fatfs is async, therefore your storage device must implement the [embedded-io-async](https://github.com/rust-embedded/embedded-hal/tree/master/embedded-io-async) traits.
+- You must call `flush` on `File`s before they are dropped. See the CHANGELOG for details.
 
-You can start using the `fatfs` library now:
-
-    let img_file = File::open("fat.img")?;
-    let fs = fatfs::FileSystem::new(img_file, fatfs::FsOptions::new())?;
-    let root_dir = fs.root_dir();
-    let mut file = root_dir.create_file("hello.txt")?;
-    file.write_all(b"Hello World!").await?;
-
-Note: it is recommended to wrap the underlying file struct in a buffering/caching object like `BufStream` from
-`fscommon` crate. For example:
-
-    let buf_stream = BufStream::new(img_file);
-    let fs = fatfs::FileSystem::new(buf_stream, fatfs::FsOptions::new())?;
-
-See more examples in the `examples` subdirectory.
-
-no_std usage
+`no_std` usage
 ------------
 
 Add this to your `Cargo.toml`:
 
     [dependencies]
-    fatfs = { version = "0.4", default-features = false }
+    embedded-fatfs = { version = "0.1", default-features = false }
 
 Additional features:
 
@@ -72,4 +56,4 @@ Note: above features are enabled by default and were designed primarily for `no_
 
 License
 -------
-The MIT license. See `LICENSE.txt`.
+The MIT license. See `LICENSE`.

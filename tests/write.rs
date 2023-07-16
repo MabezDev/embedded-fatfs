@@ -2,8 +2,8 @@ use std::future::Future;
 use std::str;
 use tokio::fs;
 
-use fatfs::ChronoTimeProvider;
-use fatfs::{FsOptions, LossyOemCpConverter, Seek, SeekFrom, Write};
+use embedded_fatfs::ChronoTimeProvider;
+use embedded_fatfs::{FsOptions, LossyOemCpConverter, Seek, SeekFrom, Write};
 use async_iterator::Iterator as AsyncIterator;
 
 const FAT12_IMG: &str = "fat12.img";
@@ -14,7 +14,7 @@ const TMP_DIR: &str = "tmp";
 const TEST_STR: &str = "Hi there Rust programmer!\n";
 const TEST_STR2: &str = "Rust is cool!\n";
 
-type FileSystem = fatfs::FileSystem<
+type FileSystem = embedded_fatfs::FileSystem<
     embedded_io_adapters::tokio_1::FromTokio<tokio::fs::File>,
     ChronoTimeProvider,
     LossyOemCpConverter,

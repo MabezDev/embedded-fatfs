@@ -1,9 +1,8 @@
 [package]
-name = "fatfs"
-version = "0.4.0"
-authors = ["Rafał Harabień <rafalh92@outlook.com>"]
-edition = "2018"
-repository = "https://github.com/rafalh/rust-fatfs"
+name = "embedded-fatfs"
+version = "0.1.0"
+edition = "2021"
+repository = "https://github.com/mabezdev/rust-fatfs"
 readme = "README.md"
 keywords = ["fat", "filesystem", "no_std"]
 categories = ["filesystem"]

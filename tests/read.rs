@@ -1,14 +1,14 @@
 use std::str;
 
 use async_iterator::Iterator;
-use fatfs::{ChronoTimeProvider, FatType, FsOptions, LossyOemCpConverter, Read, Seek, SeekFrom};
+use embedded_fatfs::{ChronoTimeProvider, FatType, FsOptions, LossyOemCpConverter, Read, Seek, SeekFrom};
 
 const TEST_TEXT: &str = "Rust is cool!\n";
 const FAT12_IMG: &str = "resources/fat12.img";
 const FAT16_IMG: &str = "resources/fat16.img";
 const FAT32_IMG: &str = "resources/fat32.img";
 
-type FileSystem = fatfs::FileSystem<
+type FileSystem = embedded_fatfs::FileSystem<
     embedded_io_adapters::tokio_1::FromTokio<tokio::fs::File>,
     ChronoTimeProvider,
     LossyOemCpConverter,
@@ -17,7 +17,7 @@ type FileSystem = fatfs::FileSystem<
 async fn create_fs(name: &str) -> FileSystem {
     let _ = env_logger::builder().is_test(true).try_init();
     let file = tokio::fs::File::open(name).await.unwrap();
-    fatfs::FileSystem::new(file, FsOptions::new()).await.unwrap()
+    embedded_fatfs::FileSystem::new(file, FsOptions::new()).await.unwrap()
 }
 
 async fn test_root_dir(fs: FileSystem) {

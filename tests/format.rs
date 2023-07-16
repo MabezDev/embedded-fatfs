@@ -1,13 +1,13 @@
 use std::io;
 
-use fatfs::{LossyOemCpConverter, ChronoTimeProvider, Write};
+use embedded_fatfs::{LossyOemCpConverter, ChronoTimeProvider, Write};
 use async_iterator::Iterator as AsyncIterator;
 
 const KB: u64 = 1024;
 const MB: u64 = KB * 1024;
 const TEST_STR: &str = "Hi there Rust programmer!\n";
 
-type FileSystem = fatfs::FileSystem<
+type FileSystem = embedded_fatfs::FileSystem<
     embedded_io_adapters::tokio_1::FromTokio<tokio::io::BufStream<std::io::Cursor<Vec<u8>>>>,
     ChronoTimeProvider,
     LossyOemCpConverter,
@@ -15,7 +15,7 @@ type FileSystem = fatfs::FileSystem<
 
 async fn basic_fs_test(fs: &FileSystem) {
     let stats = fs.stats().await.expect("stats");
-    if fs.fat_type() == fatfs::FatType::Fat32 {
+    if fs.fat_type() == embedded_fatfs::FatType::Fat32 {
         // On FAT32 one cluster is allocated for root directory
         assert_eq!(stats.total_clusters(), stats.free_clusters() + 1);
     } else {
@@ -62,15 +62,15 @@ async fn basic_fs_test(fs: &FileSystem) {
     assert_eq!(filenames, ["subdir1", "new-name.txt"]);
 }
 
-async fn test_format_fs(opts: fatfs::FormatVolumeOptions, total_bytes: u64) -> FileSystem {
+async fn test_format_fs(opts: embedded_fatfs::FormatVolumeOptions, total_bytes: u64) -> FileSystem {
     let _ = env_logger::builder().is_test(true).try_init();
     // Init storage to 0xD1 bytes (value has been choosen to be parsed as normal file)
     let storage_vec: Vec<u8> = vec![0xD1_u8; total_bytes as usize];
     let storage_cur = io::Cursor::new(storage_vec);
     let mut buffered_stream = embedded_io_adapters::tokio_1::FromTokio::new(tokio::io::BufStream::new(storage_cur));
-    fatfs::format_volume(&mut buffered_stream, opts).await.expect("format volume");
+    embedded_fatfs::format_volume(&mut buffered_stream, opts).await.expect("format volume");
 
-    let fs = fatfs::FileSystem::new(buffered_stream, fatfs::FsOptions::new()).await.expect("open fs");
+    let fs = embedded_fatfs::FileSystem::new(buffered_stream, embedded_fatfs::FsOptions::new()).await.expect("open fs");
     basic_fs_test(&fs).await;
     fs
 }
@@ -78,47 +78,47 @@ async fn test_format_fs(opts: fatfs::FormatVolumeOptions, total_bytes: u64) -> F
 #[tokio::test]
 async fn test_format_1mb() {
     let total_bytes = MB;
-    let opts = fatfs::FormatVolumeOptions::new();
+    let opts = embedded_fatfs::FormatVolumeOptions::new();
     let fs = test_format_fs(opts, total_bytes).await;
-    assert_eq!(fs.fat_type(), fatfs::FatType::Fat12);
+    assert_eq!(fs.fat_type(), embedded_fatfs::FatType::Fat12);
 }
 
 #[tokio::test]
 async fn test_format_8mb_1fat() {
     let total_bytes = 8 * MB;
-    let opts = fatfs::FormatVolumeOptions::new().fats(1);
+    let opts = embedded_fatfs::FormatVolumeOptions::new().fats(1);
     let fs = test_format_fs(opts, total_bytes).await;
-    assert_eq!(fs.fat_type(), fatfs::FatType::Fat16);
+    assert_eq!(fs.fat_type(), embedded_fatfs::FatType::Fat16);
 }
 
 #[tokio::test]
 async fn test_format_50mb() {
     let total_bytes = 50 * MB;
-    let opts = fatfs::FormatVolumeOptions::new();
+    let opts = embedded_fatfs::FormatVolumeOptions::new();
     let fs = test_format_fs(opts, total_bytes).await;
-    assert_eq!(fs.fat_type(), fatfs::FatType::Fat16);
+    assert_eq!(fs.fat_type(), embedded_fatfs::FatType::Fat16);
 }
 
 #[tokio::test]
 async fn test_format_2gb_512sec() {
     let total_bytes = 2 * 1024 * MB;
-    let opts = fatfs::FormatVolumeOptions::new();
+    let opts = embedded_fatfs::FormatVolumeOptions::new();
     let fs = test_format_fs(opts, total_bytes).await;
-    assert_eq!(fs.fat_type(), fatfs::FatType::Fat32);
+    assert_eq!(fs.fat_type(), embedded_fatfs::FatType::Fat32);
 }
 
 #[tokio::test]
 async fn test_format_1gb_4096sec() {
     let total_bytes = 1024 * MB;
-    let opts = fatfs::FormatVolumeOptions::new().bytes_per_sector(4096);
+    let opts = embedded_fatfs::FormatVolumeOptions::new().bytes_per_sector(4096);
     let fs = test_format_fs(opts, total_bytes).await;
-    assert_eq!(fs.fat_type(), fatfs::FatType::Fat32);
+    assert_eq!(fs.fat_type(), embedded_fatfs::FatType::Fat32);
 }
 
 #[tokio::test]
 async fn test_format_empty_volume_label() {
     let total_bytes = 2 * 1024 * MB;
-    let opts = fatfs::FormatVolumeOptions::new();
+    let opts = embedded_fatfs::FormatVolumeOptions::new();
     let fs = test_format_fs(opts, total_bytes).await;
     assert_eq!(fs.volume_label(), "NO NAME");
     assert_eq!(fs.read_volume_label_from_root_dir().await.unwrap(), None);
@@ -127,7 +127,7 @@ async fn test_format_empty_volume_label() {
 #[tokio::test]
 async fn test_format_volume_label_and_id() {
     let total_bytes = 2 * 1024 * MB;
-    let opts = fatfs::FormatVolumeOptions::new()
+    let opts = embedded_fatfs::FormatVolumeOptions::new()
         .volume_id(1234)
         .volume_label(*b"VOLUMELABEL");
     let fs = test_format_fs(opts, total_bytes).await;
