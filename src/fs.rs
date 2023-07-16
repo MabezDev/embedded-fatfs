@@ -722,10 +722,9 @@ where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
     fn drop(&mut self) {
-        // TODO drop
-        // if let Err(err) = self.unmount_internal() {
-        //     error!("unmount failed {:?}", err);
-        // }
+        if self.current_status_flags.get().dirty {
+            warn!("Dropping FileSytem without unmount");
+        }
     }
 }
 

@@ -250,10 +250,11 @@ where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
     fn drop(&mut self) {
-        // TODO drop
-        // if let Err(err) = self.flush() {
-        //     error!("flush failed {:?}", err);
-        // }
+        if let Some(e) = &self.entry {
+            if e.dirty() {
+                warn!("Dropping dirty file before flushing");
+            }
+        }
     }
 }
 
@@ -337,20 +338,6 @@ where
     }
 }
 
-// #[cfg(feature = "std")]
-// impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> tokio::io::AsyncRead for File<'_, IO, TP, OCC>
-// where
-//     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-// {
-//     fn poll_read(
-//         self: Pin<&mut Self>,
-//         cx: &mut Context<'_>,
-//         buf: &mut tokio::io::ReadBuf<'_>,
-//     ) -> Poll<io::Result<()>> {
-//         todo!()
-//     }
-// }
-
 impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC>
 where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
@@ -423,24 +410,6 @@ where
     }
 }
 
-// #[cfg(feature = "std")]
-// impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> std::io::Write for File<'_, IO, TP, OCC>
-// where
-//     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-// {
-//     async fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-//         Ok(Write::write(self, buf).unwrap()) // TODO handle
-//     }
-
-//     fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
-//         Ok(Write::write_all(self, buf).unwrap()) // TODO handle
-//     }
-
-//     fn flush(&mut self) -> std::io::Result<()> {
-//         Ok(Write::flush(self).unwrap()) // TODO handle
-//     }
-// }
-
 impl<IO: ReadWriteSeek, TP, OCC> Seek for File<'_, IO, TP, OCC>
 where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
@@ -508,14 +477,3 @@ where
         Ok(u64::from(self.offset))
     }
 }
-
-// TODO
-// #[cfg(test)]
-// impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> std::io::Seek for File<'_, IO, TP, OCC>
-// where
-//     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-// {
-//     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
-//         Ok(Seek::seek(self, crate::StdSeekPosWrapper::from(pos).into()).unwrap()).await // TODO handle
-//     }
-// }

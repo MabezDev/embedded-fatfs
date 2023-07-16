@@ -486,6 +486,10 @@ impl DirEntryEditor {
         &self.data
     }
 
+    pub(crate) fn dirty(&self) -> bool {
+        self.dirty
+    }
+
     pub(crate) fn set_first_cluster(&mut self, first_cluster: Option<u32>, fat_type: FatType) {
         if first_cluster != self.data.first_cluster(fat_type) {
             self.data.set_first_cluster(first_cluster, fat_type);
