@@ -528,7 +528,10 @@ impl DirEntryEditor {
         }
     }
 
-    pub(crate) async fn flush<IO: ReadWriteSeek, TP, OCC>(&mut self, fs: &FileSystem<IO, TP, OCC>) -> Result<(), IO::Error>
+    pub(crate) async fn flush<IO: ReadWriteSeek, TP, OCC>(
+        &mut self,
+        fs: &FileSystem<IO, TP, OCC>,
+    ) -> Result<(), IO::Error>
     where
         IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
     {

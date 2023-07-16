@@ -10,7 +10,6 @@ use core::str;
 #[cfg(feature = "lfn")]
 use core::{iter, slice};
 
-use async_iterator::Iterator as AsyncIterator;
 use crate::dir_entry::{
     DirEntry, DirEntryData, DirFileEntryData, DirLfnEntryData, FileAttributes, ShortName, DIR_ENTRY_SIZE,
 };
@@ -22,6 +21,7 @@ use crate::file::File;
 use crate::fs::{DiskSlice, FileSystem, FsIoAdapter, OemCpConverter, ReadWriteSeek};
 use crate::io::{self, IoBase, Read, Seek, SeekFrom, Write};
 use crate::time::TimeProvider;
+use async_iterator::Iterator as AsyncIterator;
 
 const LFN_PADDING: u16 = 0xFFFF;
 
@@ -251,11 +251,11 @@ where
                 Some(rest) => {
                     split = split_path(rest);
                     e = e.find_entry(name, Some(true), None).await?.to_dir();
-                },
+                }
                 None => {
                     e = e.find_entry(name, Some(true), None).await?.to_dir();
                     break;
-                },
+                }
             }
         }
 
@@ -283,10 +283,10 @@ where
                 Some(rest) => {
                     split = split_path(rest);
                     e = e.find_entry(name, Some(true), None).await?.to_dir();
-                },
+                }
                 None => {
                     return Ok(e.find_entry(name, Some(false), None).await?.to_file());
-                },
+                }
             }
         }
     }
@@ -315,10 +315,10 @@ where
                 Some(rest) => {
                     split = split_path(rest);
                     e = e.find_entry(name, Some(true), None).await?.to_dir();
-                },
+                }
                 None => {
                     break;
-                },
+                }
             }
         }
 
@@ -360,10 +360,10 @@ where
                 Some(rest) => {
                     split = split_path(rest);
                     e = e.find_entry(name, Some(true), None).await?.to_dir();
-                },
+                }
                 None => {
                     break;
-                },
+                }
             }
         }
 
@@ -384,8 +384,7 @@ where
                 let sfn_entry = e.create_sfn_entry(dot_sfn, FileAttributes::DIRECTORY, entry.first_cluster());
                 dir.write_entry(".", sfn_entry).await?;
                 let dotdot_sfn = ShortNameGenerator::generate_dotdot();
-                let sfn_entry =
-                    e.create_sfn_entry(dotdot_sfn, FileAttributes::DIRECTORY, self.stream.first_cluster());
+                let sfn_entry = e.create_sfn_entry(dotdot_sfn, FileAttributes::DIRECTORY, self.stream.first_cluster());
                 dir.write_entry("..", sfn_entry).await?;
                 Ok(dir)
             }
@@ -425,7 +424,7 @@ where
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub async fn remove(&self, path: &str) -> Result<(), Error<IO::Error>> {
         trace!("Dir::remove {}", path);
-        
+
         // traverse path
         let mut split = split_path(path);
         let mut e = self.clone();
@@ -435,10 +434,10 @@ where
                 Some(rest) => {
                     split = split_path(rest);
                     e = e.find_entry(name, Some(true), None).await?.to_dir();
-                },
+                }
                 None => {
                     break;
-                },
+                }
             }
         }
 
@@ -485,7 +484,12 @@ where
     ///   stripped from the last component does not point to an existing directory.
     /// * `Error::AlreadyExists` will be returned if `dst_path` points to an existing directory entry.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
-    pub async fn rename(&self, src_path: &str, dst_dir: &Dir<'_, IO, TP, OCC>, dst_path: &str) -> Result<(), Error<IO::Error>> {
+    pub async fn rename(
+        &self,
+        src_path: &str,
+        dst_dir: &Dir<'_, IO, TP, OCC>,
+        dst_path: &str,
+    ) -> Result<(), Error<IO::Error>> {
         trace!("Dir::rename {} {}", src_path, dst_path);
         // traverse source path
         let mut split_src = split_path(src_path);
@@ -496,10 +500,10 @@ where
                 Some(rest) => {
                     split_src = split_path(rest);
                     e_src = e_src.find_entry(name, Some(true), None).await?.to_dir();
-                },
+                }
                 None => {
                     break;
-                },
+                }
             }
         }
 
@@ -512,10 +516,10 @@ where
                 Some(rest) => {
                     split_dst = split_path(rest);
                     e_dst = e_dst.find_entry(name, Some(true), None).await?.to_dir();
-                },
+                }
                 None => {
                     break;
-                },
+                }
             }
         }
 

@@ -7,8 +7,10 @@ async fn main() -> anyhow::Result<()> {
     let file = tokio::fs::File::open("resources/fat32.img").await?;
     let fs = FileSystem::new(file, FsOptions::new()).await?;
     let root_dir = fs.root_dir();
-    let mut file = root_dir.open_file(&env::args().nth(1).expect("filename expected")).await?;
-    let  buf = read_to_end(&mut file).await?;
+    let mut file = root_dir
+        .open_file(&env::args().nth(1).expect("filename expected"))
+        .await?;
+    let buf = read_to_end(&mut file).await?;
     print!("{}", String::from_utf8_lossy(&buf));
     Ok(())
 }

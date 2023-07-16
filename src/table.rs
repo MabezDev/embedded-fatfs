@@ -4,10 +4,10 @@ use core::marker::PhantomData;
 
 use embedded_io::WriteAllError;
 
-use async_iterator::Iterator as AsyncIterator;
 use crate::error::{Error, IoError, ReadExactError};
 use crate::fs::{FatType, FsStatusFlags};
 use crate::io::{self, IoBase, Read, ReadLeExt, Seek, Write, WriteLeExt};
+use async_iterator::Iterator as AsyncIterator;
 
 struct Fat<S> {
     phantom: PhantomData<S>,
@@ -192,7 +192,11 @@ where
     Ok(FsStatusFlags { dirty, io_error })
 }
 
-pub(crate) async fn count_free_clusters<S, E>(fat: &mut S, fat_type: FatType, total_clusters: u32) -> Result<u32, Error<E>>
+pub(crate) async fn count_free_clusters<S, E>(
+    fat: &mut S,
+    fat_type: FatType,
+    total_clusters: u32,
+) -> Result<u32, Error<E>>
 where
     S: Read + Seek,
     E: IoError,
@@ -732,13 +736,22 @@ mod tests {
             alloc_cluster(&mut cur, fat_type, None, Some(0x13), 0x1E).await.ok(),
             Some(0x1B)
         );
-        assert_eq!(read_fat(&mut cur, fat_type, 0x1B).await.ok(), Some(FatValue::EndOfChain));
+        assert_eq!(
+            read_fat(&mut cur, fat_type, 0x1B).await.ok(),
+            Some(FatValue::EndOfChain)
+        );
         assert_eq!(
             alloc_cluster(&mut cur, fat_type, Some(0x1B), None, 0x1E).await.ok(),
             Some(0x12)
         );
-        assert_eq!(read_fat(&mut cur, fat_type, 0x1B).await.ok(), Some(FatValue::Data(0x12)));
-        assert_eq!(read_fat(&mut cur, fat_type, 0x12).await.ok(), Some(FatValue::EndOfChain));
+        assert_eq!(
+            read_fat(&mut cur, fat_type, 0x1B).await.ok(),
+            Some(FatValue::Data(0x12))
+        );
+        assert_eq!(
+            read_fat(&mut cur, fat_type, 0x12).await.ok(),
+            Some(FatValue::EndOfChain)
+        );
         assert_eq!(count_free_clusters(&mut cur, fat_type, 0x1E).await.ok(), Some(3));
         // test reading from iterator
         {
@@ -761,7 +774,10 @@ mod tests {
             assert_eq!(value, Some(0x16));
             assert!(iter.truncate().await.is_ok());
         }
-        assert_eq!(read_fat(&mut cur, fat_type, 0x16).await.ok(), Some(FatValue::EndOfChain));
+        assert_eq!(
+            read_fat(&mut cur, fat_type, 0x16).await.ok(),
+            Some(FatValue::EndOfChain)
+        );
         assert_eq!(read_fat(&mut cur, fat_type, 0x19).await.ok(), Some(FatValue::Free));
         assert_eq!(read_fat(&mut cur, fat_type, 0x1A).await.ok(), Some(FatValue::Free));
         // test freeing a chain

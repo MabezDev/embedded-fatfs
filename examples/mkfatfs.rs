@@ -1,9 +1,9 @@
 use std::env;
 
-use embedded_io_adapters::tokio_1::FromTokio;
 use embedded_fatfs::{format_volume, FormatVolumeOptions};
-use tokio::io::BufStream;
+use embedded_io_adapters::tokio_1::FromTokio;
 use tokio::fs;
+use tokio::io::BufStream;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

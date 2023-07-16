@@ -1,10 +1,9 @@
 use core::fmt::Debug;
-pub use embedded_io::ReadExactError;
 pub use embedded_io::Error as IoError;
 pub use embedded_io::ErrorKind;
 pub use embedded_io::ErrorType as IoBase;
+pub use embedded_io::ReadExactError;
 use embedded_io::WriteAllError;
-
 
 /// Error enum with all errors that can be returned by functions from this crate
 ///
