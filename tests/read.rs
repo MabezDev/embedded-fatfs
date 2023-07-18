@@ -1,7 +1,8 @@
 use std::str;
 
 use async_iterator::Iterator;
-use embedded_fatfs::{ChronoTimeProvider, FatType, FsOptions, LossyOemCpConverter, Read, Seek, SeekFrom};
+use embedded_fatfs::{ChronoTimeProvider, FatType, FsOptions, LossyOemCpConverter};
+use embedded_io::{Read, Seek, SeekFrom};
 
 const TEST_TEXT: &str = "Rust is cool!\n";
 const FAT12_IMG: &str = "resources/fat12.img";

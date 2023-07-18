@@ -3,8 +3,8 @@ use std::str;
 use tokio::fs;
 
 use async_iterator::Iterator as AsyncIterator;
-use embedded_fatfs::ChronoTimeProvider;
-use embedded_fatfs::{FsOptions, LossyOemCpConverter, Seek, SeekFrom, Write};
+use embedded_fatfs::{ChronoTimeProvider, FsOptions, LossyOemCpConverter};
+use embedded_io::{Seek, SeekFrom, Write};
 
 const FAT12_IMG: &str = "fat12.img";
 const FAT16_IMG: &str = "fat16.img";

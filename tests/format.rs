@@ -1,7 +1,8 @@
 use std::io;
 
 use async_iterator::Iterator as AsyncIterator;
-use embedded_fatfs::{ChronoTimeProvider, LossyOemCpConverter, Write};
+use embedded_fatfs::{ChronoTimeProvider, LossyOemCpConverter};
+use embedded_io::Write;
 
 const KB: u64 = 1024;
 const MB: u64 = KB * 1024;
