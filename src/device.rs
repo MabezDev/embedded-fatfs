@@ -1,5 +1,6 @@
 use core::cmp;
 use core::fmt::Debug;
+use elain::{Align, Alignment};
 use embedded_io as io;
 use embedded_io::{Read, ReadExactError, Seek, Write, WriteAllError};
 
@@ -103,21 +104,80 @@ impl<T: Read + Write + Seek> Seek for StreamSlice<T> {
     }
 }
 
-/// Stream wrapper for accessing limited segment of data from underlying file or device.
+/// A Stream wrapper for accessing a stream in block sized chunks.
+///
+/// [`BlockAccess<T, const SIZE: usize, const ALIGN: usize`](BlockAccess) can be initialized with the following parameters.
+///
+/// - `T`: The inner stream.
+/// - `SIZE`: The size of the block, this dictates the size of the internal buffer.
+/// - `ALIGN`: The alignment of the internal buffer.
+///
+/// If the `buf` provided to either [`Read::read`] or [`Write::write`] meets the following conditions the `buf` 
+/// will be used directly instead of the intermediate buffer to avoid unnecessary copies:
+/// 
+/// - `buf.len()` is a multiple of block size
+/// - `buf.len()` has the same alignment as the internal buffer
+/// 
 #[derive(Clone)]
-pub struct BlockAccess<T: Read + Write + Seek, const SIZE: usize> {
+pub struct BlockAccess<T: Read + Write + Seek, const SIZE: usize, const ALIGN: usize>
+where
+    Align<ALIGN>: Alignment,
+{
     inner: T,
-    // TODO handle alignment of buffer?
-    buffer: [u8; SIZE],
+    buffer: AlignedBuffer<SIZE, ALIGN>,
     last_block: u64,
 }
 
-impl<T: Read + Write + Seek, const SIZE: usize> BlockAccess<T, SIZE> {
+#[derive(Clone)]
+struct AlignedBuffer<const SIZE: usize, const ALIGN: usize>
+where
+    Align<ALIGN>: Alignment,
+{
+    _align: Align<ALIGN>,
+    buffer: [u8; SIZE],
+}
+
+impl<const SIZE: usize, const ALIGN: usize> AlignedBuffer<SIZE, ALIGN>
+where
+    Align<ALIGN>: Alignment,
+{
+    pub const fn new() -> Self {
+        Self {
+            _align: Align::NEW,
+            buffer: [0; SIZE],
+        }
+    }
+}
+
+impl<const SIZE: usize, const ALIGN: usize> core::ops::Deref for AlignedBuffer<SIZE, ALIGN>
+where
+    Align<ALIGN>: Alignment,
+{
+    type Target = [u8; SIZE];
+
+    fn deref(&self) -> &Self::Target {
+        &self.buffer
+    }
+}
+
+impl<const SIZE: usize, const ALIGN: usize> core::ops::DerefMut for AlignedBuffer<SIZE, ALIGN>
+where
+    Align<ALIGN>: Alignment,
+{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.buffer
+    }
+}
+
+impl<T: Read + Write + Seek, const SIZE: usize, const ALIGN: usize> BlockAccess<T, SIZE, ALIGN>
+where
+    Align<ALIGN>: Alignment,
+{
     pub const fn new(inner: T) -> Self {
         Self {
             inner,
             last_block: u64::MAX,
-            buffer: [0; SIZE],
+            buffer: AlignedBuffer::new(),
         }
     }
 
@@ -127,71 +187,91 @@ impl<T: Read + Write + Seek, const SIZE: usize> BlockAccess<T, SIZE> {
     }
 }
 
-impl<T: Read + Write + Seek, const SIZE: usize> embedded_io::ErrorType for BlockAccess<T, SIZE> {
+impl<T: Read + Write + Seek, const SIZE: usize, const ALIGN: usize> embedded_io::ErrorType
+    for BlockAccess<T, SIZE, ALIGN>
+where
+    Align<ALIGN>: Alignment,
+{
     type Error = T::Error;
 }
 
-impl<T: Read + Write + Seek, const SIZE: usize> Read for BlockAccess<T, SIZE>
+impl<T: Read + Write + Seek, const SIZE: usize, const ALIGN: usize> Read for BlockAccess<T, SIZE, ALIGN>
 where
-    T::Error: From<ReadExactError<T::Error>>,
+    Align<ALIGN>: Alignment,
+    T::Error: From<ReadExactError<T::Error>> + From<WriteAllError<T::Error>>,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, T::Error> {
-        let offset = self.inner.seek(io::SeekFrom::Current(0)).await?;
-        let block_start = (offset / SIZE as u64) * SIZE as u64;
-        let block_end = block_start + SIZE as u64;
-        log::info!("offset {offset}, block_start {block_start}, block_end {block_end}");
+        Ok(if buf.len() % SIZE == 0 && &buf[0] as *const _ as usize % ALIGN == 0 {
+            // If the provided buffer has a suitable length and alignment use it directly
+            self.inner.read_exact(buf).await?;
+            buf.len()
+        } else {
+            let offset = self.inner.seek(io::SeekFrom::Current(0)).await?;
+            let block_start = (offset / SIZE as u64) * SIZE as u64;
+            let block_end = block_start + SIZE as u64;
+            log::info!("offset {offset}, block_start {block_start}, block_end {block_end}");
 
-        if block_start != self.last_block {
-            // We have seeked to a new block, read it
-            self.inner.seek(io::SeekFrom::Start(block_start)).await?;
-            self.inner.read_exact(&mut self.buffer[..]).await?;
-        }
+            if block_start != self.last_block {
+                // We have seeked to a new block, read it
+                self.inner.seek(io::SeekFrom::Start(block_start)).await?;
+                self.inner.read_exact(&mut self.buffer[..]).await?;
+            }
 
-        // copy as much as possible, up to the block boundary
-        let buffer_offset = (offset - block_start) as usize;
-        let bytes_to_read = buf.len();
-        let end = core::cmp::min(buffer_offset + bytes_to_read, SIZE);
-        log::info!("buffer_offset {buffer_offset}, end {end}");
-        let bytes_read = end - buffer_offset;
-        buf[..bytes_read].copy_from_slice(&self.buffer[buffer_offset..end]);
+            // copy as much as possible, up to the block boundary
+            let buffer_offset = (offset - block_start) as usize;
+            let bytes_to_read = buf.len();
+            let end = core::cmp::min(buffer_offset + bytes_to_read, SIZE);
+            log::info!("buffer_offset {buffer_offset}, end {end}");
+            let bytes_read = end - buffer_offset;
+            buf[..bytes_read].copy_from_slice(&self.buffer[buffer_offset..end]);
 
-        self.inner.seek(io::SeekFrom::Start(offset + bytes_read as u64)).await?;
-        Ok(bytes_read)
+            self.inner.seek(io::SeekFrom::Start(offset + bytes_read as u64)).await?;
+
+            bytes_read
+        })
     }
 }
 
-impl<T: Read + Write + Seek, const SIZE: usize> Write for BlockAccess<T, SIZE>
+impl<T: Read + Write + Seek, const SIZE: usize, const ALIGN: usize> Write for BlockAccess<T, SIZE, ALIGN>
 where
+    Align<ALIGN>: Alignment,
     T::Error: From<ReadExactError<T::Error>> + From<WriteAllError<T::Error>>,
 {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, T::Error> {
-        let offset = self.inner.seek(io::SeekFrom::Current(0)).await?;
-        let block_start = (offset / SIZE as u64) * SIZE as u64;
-        let block_end = block_start + SIZE as u64;
-        log::info!("offset {offset}, block_start {block_start}, block_end {block_end}");
+        Ok(if buf.len() % SIZE == 0 && &buf[0] as *const _ as usize % ALIGN == 0 {
+            // If the provided buffer has a suitable length and alignment use it directly
+            self.inner.write_all(buf).await?;
+            buf.len()
+        } else {
+            let offset = self.inner.seek(io::SeekFrom::Current(0)).await?;
+            let block_start = (offset / SIZE as u64) * SIZE as u64;
+            let block_end = block_start + SIZE as u64;
+            log::info!("offset {offset}, block_start {block_start}, block_end {block_end}");
 
-        if block_start != self.last_block {
-            // We have seeked to a new block, read it
+            if block_start != self.last_block {
+                // We have seeked to a new block, read it
+                self.inner.seek(io::SeekFrom::Start(block_start)).await?;
+                self.inner.read_exact(&mut self.buffer[..]).await?;
+            }
+
+            // copy as much as possible, up to the block boundary
+            let buffer_offset = (offset - block_start) as usize;
+            let bytes_to_write = buf.len();
+            let end = core::cmp::min(buffer_offset + bytes_to_write, SIZE);
+            log::info!("buffer_offset {buffer_offset}, end {end}");
+            let bytes_written = end - buffer_offset;
+            self.buffer[buffer_offset..buffer_offset + bytes_written].copy_from_slice(&buf[..bytes_written]);
+
+            // write out the whole block with the modified data
             self.inner.seek(io::SeekFrom::Start(block_start)).await?;
-            self.inner.read_exact(&mut self.buffer[..]).await?;
-        }
+            self.inner.write_all(&self.buffer[..]).await?;
 
-        // copy as much as possible, up to the block boundary
-        let buffer_offset = (offset - block_start) as usize;
-        let bytes_to_write = buf.len();
-        let end = core::cmp::min(buffer_offset + bytes_to_write, SIZE);
-        log::info!("buffer_offset {buffer_offset}, end {end}");
-        let bytes_written = end - buffer_offset;
-        self.buffer[buffer_offset..buffer_offset + bytes_written].copy_from_slice(&buf[..bytes_written]);
+            self.inner
+                .seek(io::SeekFrom::Start(offset + bytes_written as u64))
+                .await?;
 
-        // write out the whole block with the modified data
-        self.inner.seek(io::SeekFrom::Start(block_start)).await?;
-        self.inner.write_all(&self.buffer[..]).await?;
-
-        self.inner
-            .seek(io::SeekFrom::Start(offset + bytes_written as u64))
-            .await?;
-        Ok(bytes_written)
+            bytes_written
+        })
     }
 
     async fn flush(&mut self) -> Result<(), T::Error> {
@@ -199,7 +279,10 @@ where
     }
 }
 
-impl<T: Read + Write + Seek, const SIZE: usize> Seek for BlockAccess<T, SIZE> {
+impl<T: Read + Write + Seek, const SIZE: usize, const ALIGN: usize> Seek for BlockAccess<T, SIZE, ALIGN>
+where
+    Align<ALIGN>: Alignment,
+{
     async fn seek(&mut self, pos: io::SeekFrom) -> Result<u64, T::Error> {
         self.inner.seek(pos).await
     }
@@ -238,7 +321,7 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = ("A".repeat(512) + "B".repeat(512).as_str()).into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BlockAccess<_, 512> = BlockAccess::new(embedded_io_adapters::tokio_1::FromTokio::new(cur));
+        let mut block: BlockAccess<_, 512, 4> = BlockAccess::new(embedded_io_adapters::tokio_1::FromTokio::new(cur));
 
         // Test sector aligned access
         let mut buf = vec![0; 128];
@@ -263,7 +346,7 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = ("A".repeat(64) + "B".repeat(64).as_str()).repeat(16).into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BlockAccess<_, 512> = BlockAccess::new(embedded_io_adapters::tokio_1::FromTokio::new(cur));
+        let mut block: BlockAccess<_, 512, 4> = BlockAccess::new(embedded_io_adapters::tokio_1::FromTokio::new(cur));
 
         // Test sector aligned access
         let mut buf = vec![0; 64];
@@ -287,13 +370,12 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
-        let mut block: BlockAccess<_, 512> = BlockAccess::new(embedded_io_adapters::tokio_1::FromTokio::new(cur));
+        let mut block: BlockAccess<_, 512, 4> = BlockAccess::new(embedded_io_adapters::tokio_1::FromTokio::new(cur));
 
         // Test sector aligned access
         let data_a = "A".repeat(512).into_bytes();
         block.seek(io::SeekFrom::Start(0)).await.unwrap();
         block.write_all(&data_a).await.unwrap();
-        // block.flush().await.unwrap();
         assert_eq!(&block.into_inner().into_inner().into_inner()[..512], data_a)
     }
 
@@ -302,7 +384,7 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
-        let mut block: BlockAccess<_, 512> = BlockAccess::new(embedded_io_adapters::tokio_1::FromTokio::new(cur));
+        let mut block: BlockAccess<_, 512, 4> = BlockAccess::new(embedded_io_adapters::tokio_1::FromTokio::new(cur));
 
         // Test sector aligned access
         let data_a = "A".repeat(512).into_bytes();
@@ -312,6 +394,45 @@ mod tests {
         assert_eq!(&buf[..256], [0; 256]);
         assert_eq!(&buf[256..768], data_a);
         assert_eq!(&buf[768..1024], [0; 256]);
+    }
+
+    #[tokio::test]
+    async fn aligned_write_block_optimization() {
+        let _ = env_logger::builder().is_test(true).try_init();
+        let buf = vec![0; 2048];
+        let cur = std::io::Cursor::new(buf);
+        let mut block: BlockAccess<_, 512, 4> = BlockAccess::new(embedded_io_adapters::tokio_1::FromTokio::new(cur));
+
+        let mut aligned_buffer: AlignedBuffer<2048, 4> = AlignedBuffer::new();
+        let data_a = "A".repeat(512).into_bytes();
+        aligned_buffer[..512].copy_from_slice(&data_a[..]);
+        block.seek(io::SeekFrom::Start(0)).await.unwrap();
+        block.write_all(&aligned_buffer[..]).await.unwrap();
+
+        // if we wrote directly, the block buffer will be empty
+        assert_eq!(&block.buffer[..], [0u8; 512]);
+        // the write suceeded
+        assert_eq!(&block.into_inner().into_inner().into_inner()[..512], &data_a)
+    }
+
+    #[tokio::test]
+    async fn aligned_read_block_optimization() {
+        let _ = env_logger::builder().is_test(true).try_init();
+        let buf = "A".repeat(2048).into_bytes();
+        let cur = std::io::Cursor::new(buf);
+        let mut block: BlockAccess<_, 512, 4> = BlockAccess::new(embedded_io_adapters::tokio_1::FromTokio::new(cur));
+
+        let mut aligned_buffer: AlignedBuffer<512, 4> = AlignedBuffer::new();
+        block.seek(io::SeekFrom::Start(0)).await.unwrap();
+        block.read_exact(&mut aligned_buffer[..]).await.unwrap();
+
+        // if we read directly, the block buffer will be empty
+        assert_eq!(&block.buffer[..], [0u8; 512]);
+        // the write suceeded
+        assert_eq!(
+            &block.into_inner().into_inner().into_inner()[..512],
+            &aligned_buffer[..]
+        )
     }
 
     async fn read_to_string<IO: embedded_io::Read>(io: &mut IO) -> Result<String, IO::Error> {
