@@ -106,7 +106,7 @@ impl<T: Read + Write + Seek> Seek for StreamSlice<T> {
 
 /// A Stream wrapper for accessing a stream in block sized chunks.
 ///
-/// [`BlockAccess<T, const SIZE: usize, const ALIGN: usize`](BlockAccess) can be initialized with the following parameters.
+/// [`BlockDevice<T, const SIZE: usize, const ALIGN: usize`](BlockDevice) can be initialized with the following parameters.
 ///
 /// - `T`: The inner stream.
 /// - `SIZE`: The size of the block, this dictates the size of the internal buffer.
@@ -119,13 +119,13 @@ impl<T: Read + Write + Seek> Seek for StreamSlice<T> {
 /// - `buf.len()` has the same alignment as the internal buffer
 /// 
 #[derive(Clone)]
-pub struct BlockAccess<T: Read + Write + Seek, const SIZE: usize, const ALIGN: usize>
+pub struct BlockDevice<T: Read + Write + Seek, const SIZE: usize, const ALIGN: usize>
 where
     Align<ALIGN>: Alignment,
 {
     inner: T,
     buffer: AlignedBuffer<SIZE, ALIGN>,
-    last_block: u64,
+    current_block: u64,
 }
 
 #[derive(Clone)]
@@ -169,14 +169,14 @@ where
     }
 }
 
-impl<T: Read + Write + Seek, const SIZE: usize, const ALIGN: usize> BlockAccess<T, SIZE, ALIGN>
+impl<T: Read + Write + Seek, const SIZE: usize, const ALIGN: usize> BlockDevice<T, SIZE, ALIGN>
 where
     Align<ALIGN>: Alignment,
 {
     pub const fn new(inner: T) -> Self {
         Self {
             inner,
-            last_block: u64::MAX,
+            current_block: u64::MAX,
             buffer: AlignedBuffer::new(),
         }
     }
@@ -188,14 +188,14 @@ where
 }
 
 impl<T: Read + Write + Seek, const SIZE: usize, const ALIGN: usize> embedded_io::ErrorType
-    for BlockAccess<T, SIZE, ALIGN>
+    for BlockDevice<T, SIZE, ALIGN>
 where
     Align<ALIGN>: Alignment,
 {
     type Error = T::Error;
 }
 
-impl<T: Read + Write + Seek, const SIZE: usize, const ALIGN: usize> Read for BlockAccess<T, SIZE, ALIGN>
+impl<T: Read + Write + Seek, const SIZE: usize, const ALIGN: usize> Read for BlockDevice<T, SIZE, ALIGN>
 where
     Align<ALIGN>: Alignment,
     T::Error: From<ReadExactError<T::Error>> + From<WriteAllError<T::Error>>,
@@ -211,7 +211,7 @@ where
             let block_end = block_start + SIZE as u64;
             log::info!("offset {offset}, block_start {block_start}, block_end {block_end}");
 
-            if block_start != self.last_block {
+            if block_start != self.current_block {
                 // We have seeked to a new block, read it
                 self.inner.seek(io::SeekFrom::Start(block_start)).await?;
                 self.inner.read_exact(&mut self.buffer[..]).await?;
@@ -232,7 +232,7 @@ where
     }
 }
 
-impl<T: Read + Write + Seek, const SIZE: usize, const ALIGN: usize> Write for BlockAccess<T, SIZE, ALIGN>
+impl<T: Read + Write + Seek, const SIZE: usize, const ALIGN: usize> Write for BlockDevice<T, SIZE, ALIGN>
 where
     Align<ALIGN>: Alignment,
     T::Error: From<ReadExactError<T::Error>> + From<WriteAllError<T::Error>>,
@@ -248,7 +248,7 @@ where
             let block_end = block_start + SIZE as u64;
             log::info!("offset {offset}, block_start {block_start}, block_end {block_end}");
 
-            if block_start != self.last_block {
+            if block_start != self.current_block {
                 // We have seeked to a new block, read it
                 self.inner.seek(io::SeekFrom::Start(block_start)).await?;
                 self.inner.read_exact(&mut self.buffer[..]).await?;
@@ -279,7 +279,7 @@ where
     }
 }
 
-impl<T: Read + Write + Seek, const SIZE: usize, const ALIGN: usize> Seek for BlockAccess<T, SIZE, ALIGN>
+impl<T: Read + Write + Seek, const SIZE: usize, const ALIGN: usize> Seek for BlockDevice<T, SIZE, ALIGN>
 where
     Align<ALIGN>: Alignment,
 {
@@ -290,7 +290,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{BlockAccess, *};
+    use super::{BlockDevice, *};
 
     #[tokio::test]
     async fn stream_smoke_test() {
@@ -321,7 +321,7 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = ("A".repeat(512) + "B".repeat(512).as_str()).into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BlockAccess<_, 512, 4> = BlockAccess::new(embedded_io_adapters::tokio_1::FromTokio::new(cur));
+        let mut block: BlockDevice<_, 512, 4> = BlockDevice::new(embedded_io_adapters::tokio_1::FromTokio::new(cur));
 
         // Test sector aligned access
         let mut buf = vec![0; 128];
@@ -346,7 +346,7 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = ("A".repeat(64) + "B".repeat(64).as_str()).repeat(16).into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BlockAccess<_, 512, 4> = BlockAccess::new(embedded_io_adapters::tokio_1::FromTokio::new(cur));
+        let mut block: BlockDevice<_, 512, 4> = BlockDevice::new(embedded_io_adapters::tokio_1::FromTokio::new(cur));
 
         // Test sector aligned access
         let mut buf = vec![0; 64];
@@ -370,7 +370,7 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
-        let mut block: BlockAccess<_, 512, 4> = BlockAccess::new(embedded_io_adapters::tokio_1::FromTokio::new(cur));
+        let mut block: BlockDevice<_, 512, 4> = BlockDevice::new(embedded_io_adapters::tokio_1::FromTokio::new(cur));
 
         // Test sector aligned access
         let data_a = "A".repeat(512).into_bytes();
@@ -384,7 +384,7 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
-        let mut block: BlockAccess<_, 512, 4> = BlockAccess::new(embedded_io_adapters::tokio_1::FromTokio::new(cur));
+        let mut block: BlockDevice<_, 512, 4> = BlockDevice::new(embedded_io_adapters::tokio_1::FromTokio::new(cur));
 
         // Test sector aligned access
         let data_a = "A".repeat(512).into_bytes();
@@ -401,7 +401,7 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
-        let mut block: BlockAccess<_, 512, 4> = BlockAccess::new(embedded_io_adapters::tokio_1::FromTokio::new(cur));
+        let mut block: BlockDevice<_, 512, 4> = BlockDevice::new(embedded_io_adapters::tokio_1::FromTokio::new(cur));
 
         let mut aligned_buffer: AlignedBuffer<2048, 4> = AlignedBuffer::new();
         let data_a = "A".repeat(512).into_bytes();
@@ -420,7 +420,7 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = "A".repeat(2048).into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BlockAccess<_, 512, 4> = BlockAccess::new(embedded_io_adapters::tokio_1::FromTokio::new(cur));
+        let mut block: BlockDevice<_, 512, 4> = BlockDevice::new(embedded_io_adapters::tokio_1::FromTokio::new(cur));
 
         let mut aligned_buffer: AlignedBuffer<512, 4> = AlignedBuffer::new();
         block.seek(io::SeekFrom::Start(0)).await.unwrap();
