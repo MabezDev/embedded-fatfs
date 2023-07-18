@@ -38,7 +38,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --verbose
+          args: --verbose --features device
         if: ${{ matrix.run_tests }}
 
       - name: Run cargo build - no_std
@@ -58,3 +58,8 @@ jobs:
         with:
           command: build
           args: --no-default-features --features alloc,lfn,unicode
+      - name: Run cargo build - no_std, alloc, lfn, unicode, device
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --no-default-features --features alloc,lfn,unicode,device

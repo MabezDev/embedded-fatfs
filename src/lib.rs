@@ -16,7 +16,7 @@
 //! use tokio::fs;
 //! use async_iterator::Iterator;
 //! use embedded_io::Write;
-//! 
+//!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
 //!     # fs::copy("resources/fat16.img", "tmp/fat.img").await?;
@@ -70,6 +70,8 @@ extern crate alloc;
 mod log_macros;
 
 mod boot_sector;
+#[cfg(feature = "device")]
+mod device;
 mod dir;
 mod dir_entry;
 mod error;
@@ -79,6 +81,8 @@ mod io;
 mod table;
 mod time;
 
+#[cfg(feature = "device")]
+pub use crate::device::*;
 pub use crate::dir::*;
 pub use crate::dir_entry::*;
 pub use crate::error::*;

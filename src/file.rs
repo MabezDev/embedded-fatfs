@@ -99,35 +99,35 @@ where
     /// This returns an iterator over the byte ranges on-disk occupied by
     /// this file.
     // pub fn extents(&mut self) -> impl Iterator<Item = Result<Extent, Error<IO::Error>>> + 'a {
-        // let fs = self.fs;
-        // let cluster_size = fs.cluster_size();
-        // let mut bytes_left = match self.size() {
-        //     Some(s) => s,
-        //     None => return None.into_iter().flatten(),
-        // };
-        // let first = match self.first_cluster {
-        //     Some(f) => f,
-        //     None => return None.into_iter().flatten(),
-        // };
+    // let fs = self.fs;
+    // let cluster_size = fs.cluster_size();
+    // let mut bytes_left = match self.size() {
+    //     Some(s) => s,
+    //     None => return None.into_iter().flatten(),
+    // };
+    // let first = match self.first_cluster {
+    //     Some(f) => f,
+    //     None => return None.into_iter().flatten(),
+    // };
 
-        // Some(
-        //     core::iter::once(Ok(first))
-        //         .chain(fs.cluster_iter(first))
-        //         .map(move |cluster_err| match cluster_err {
-        //             Ok(cluster) => {
-        //                 let size = cluster_size.min(bytes_left);
-        //                 bytes_left -= size;
-        //                 Ok(Extent {
-        //                     offset: fs.offset_from_cluster(cluster),
-        //                     size,
-        //                 })
-        //             }
-        //             Err(e) => Err(e),
-        //         }),
-        // )
-        // .into_iter()
-        // .flatten()
-        // todo!("extents needs to be implemented using AsyncIterator");
+    // Some(
+    //     core::iter::once(Ok(first))
+    //         .chain(fs.cluster_iter(first))
+    //         .map(move |cluster_err| match cluster_err {
+    //             Ok(cluster) => {
+    //                 let size = cluster_size.min(bytes_left);
+    //                 bytes_left -= size;
+    //                 Ok(Extent {
+    //                     offset: fs.offset_from_cluster(cluster),
+    //                     size,
+    //                 })
+    //             }
+    //             Err(e) => Err(e),
+    //         }),
+    // )
+    // .into_iter()
+    // .flatten()
+    // todo!("extents needs to be implemented using AsyncIterator");
     // }
 
     pub(crate) fn abs_pos(&self) -> Option<u64> {

@@ -9,9 +9,9 @@ use core::u32;
 
 #[cfg(all(not(feature = "std"), feature = "alloc", feature = "lfn"))]
 use alloc::string::String;
+use embedded_io::WriteAllError;
 #[cfg(feature = "std")]
 use embedded_io_adapters::tokio_1::FromTokio;
-use embedded_io::WriteAllError;
 
 use crate::boot_sector::{format_boot_sector, BiosParameterBlock, BootSector};
 use crate::dir::{Dir, DirRawStream};
@@ -410,7 +410,8 @@ where
 
         // read FSInfo sector if this is FAT32
         let mut fs_info = if fat_type == FatType::Fat32 {
-            disk.seek(SeekFrom::Start(bpb.bytes_from_sectors(bpb.fs_info_sector()))).await?;
+            disk.seek(SeekFrom::Start(bpb.bytes_from_sectors(bpb.fs_info_sector())))
+                .await?;
             FsInfoSector::deserialize(&mut disk).await?
         } else {
             FsInfoSector::default()
@@ -976,7 +977,10 @@ where
     Ok(())
 }
 
-async fn write_zeros_until_end_of_sector<IO: ReadWriteSeek>(disk: &mut IO, bytes_per_sector: u16) -> Result<(), IO::Error>
+async fn write_zeros_until_end_of_sector<IO: ReadWriteSeek>(
+    disk: &mut IO,
+    bytes_per_sector: u16,
+) -> Result<(), IO::Error>
 where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
@@ -1181,7 +1185,10 @@ impl FormatVolumeOptions {
 ///
 /// Panics in non-optimized build if `storage` position returned by `seek` is not zero.
 #[allow(clippy::needless_pass_by_value)]
-pub async fn format_volume<S: ReadWriteSeek>(storage: &mut S, options: FormatVolumeOptions) -> Result<(), Error<S::Error>>
+pub async fn format_volume<S: ReadWriteSeek>(
+    storage: &mut S,
+    options: FormatVolumeOptions,
+) -> Result<(), Error<S::Error>>
 where
     S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
 {
@@ -1220,12 +1227,16 @@ where
             next_free_cluster: None,
             dirty: false,
         };
-        storage.seek(SeekFrom::Start(bpb.bytes_from_sectors(bpb.fs_info_sector()))).await?;
+        storage
+            .seek(SeekFrom::Start(bpb.bytes_from_sectors(bpb.fs_info_sector())))
+            .await?;
         fs_info_sector.serialize(storage).await?;
         write_zeros_until_end_of_sector(storage, bytes_per_sector).await?;
 
         // backup boot sector
-        storage.seek(SeekFrom::Start(bpb.bytes_from_sectors(bpb.backup_boot_sector()))).await?;
+        storage
+            .seek(SeekFrom::Start(bpb.bytes_from_sectors(bpb.backup_boot_sector())))
+            .await?;
         boot.serialize(storage).await?;
         write_zeros_until_end_of_sector(storage, bytes_per_sector).await?;
     }

@@ -1,7 +1,7 @@
 use std::io;
 
-use embedded_fatfs::{LossyOemCpConverter, ChronoTimeProvider, Write};
 use async_iterator::Iterator as AsyncIterator;
+use embedded_fatfs::{ChronoTimeProvider, LossyOemCpConverter, Write};
 
 const KB: u64 = 1024;
 const MB: u64 = KB * 1024;
@@ -28,7 +28,8 @@ async fn basic_fs_test(fs: &FileSystem) {
 
     let subdir1 = root_dir.create_dir("subdir1").await.expect("create_dir subdir1");
     let subdir2 = root_dir
-        .create_dir("subdir1/subdir2 with long name").await
+        .create_dir("subdir1/subdir2 with long name")
+        .await
         .expect("create_dir subdir2");
 
     let test_str = TEST_STR.repeat(1000);
@@ -40,25 +41,43 @@ async fn basic_fs_test(fs: &FileSystem) {
     }
 
     let mut file = root_dir
-        .open_file("subdir1/subdir2 with long name/test file name.txt").await
+        .open_file("subdir1/subdir2 with long name/test file name.txt")
+        .await
         .unwrap();
     let content = read_to_end(&mut file).await.unwrap();
     assert_eq!(core::str::from_utf8(&content).unwrap(), test_str);
 
-    let filenames = root_dir.iter().map(|r| async { r.unwrap().file_name() }).collect::<Vec<String>>().await;
+    let filenames = root_dir
+        .iter()
+        .map(|r| async { r.unwrap().file_name() })
+        .collect::<Vec<String>>()
+        .await;
     assert_eq!(filenames, ["subdir1"]);
 
-    let filenames = subdir2.iter().map(|r| async { r.unwrap().file_name() }).collect::<Vec<String>>().await;
+    let filenames = subdir2
+        .iter()
+        .map(|r| async { r.unwrap().file_name() })
+        .collect::<Vec<String>>()
+        .await;
     assert_eq!(filenames, [".", "..", "test file name.txt"]);
 
     subdir1
-        .rename("subdir2 with long name/test file name.txt", &root_dir, "new-name.txt").await
+        .rename("subdir2 with long name/test file name.txt", &root_dir, "new-name.txt")
+        .await
         .expect("rename");
 
-    let filenames = subdir2.iter().map(|r| async { r.unwrap().file_name() }).collect::<Vec<String>>().await;
+    let filenames = subdir2
+        .iter()
+        .map(|r| async { r.unwrap().file_name() })
+        .collect::<Vec<String>>()
+        .await;
     assert_eq!(filenames, [".", ".."]);
 
-    let filenames = root_dir.iter().map(|r| async { r.unwrap().file_name() }).collect::<Vec<String>>().await;
+    let filenames = root_dir
+        .iter()
+        .map(|r| async { r.unwrap().file_name() })
+        .collect::<Vec<String>>()
+        .await;
     assert_eq!(filenames, ["subdir1", "new-name.txt"]);
 }
 
@@ -68,9 +87,13 @@ async fn test_format_fs(opts: embedded_fatfs::FormatVolumeOptions, total_bytes: 
     let storage_vec: Vec<u8> = vec![0xD1_u8; total_bytes as usize];
     let storage_cur = io::Cursor::new(storage_vec);
     let mut buffered_stream = embedded_io_adapters::tokio_1::FromTokio::new(tokio::io::BufStream::new(storage_cur));
-    embedded_fatfs::format_volume(&mut buffered_stream, opts).await.expect("format volume");
+    embedded_fatfs::format_volume(&mut buffered_stream, opts)
+        .await
+        .expect("format volume");
 
-    let fs = embedded_fatfs::FileSystem::new(buffered_stream, embedded_fatfs::FsOptions::new()).await.expect("open fs");
+    let fs = embedded_fatfs::FileSystem::new(buffered_stream, embedded_fatfs::FsOptions::new())
+        .await
+        .expect("open fs");
     basic_fs_test(&fs).await;
     fs
 }

@@ -999,9 +999,8 @@ mod tests {
         }
         total_sectors_vec.push(u32::MAX);
         for total_sectors in total_sectors_vec {
-            let (boot, _) =
-                format_boot_sector::<Dummy>(&FormatVolumeOptions::new(), total_sectors, bytes_per_sector)
-                    .expect("format_boot_sector");
+            let (boot, _) = format_boot_sector::<Dummy>(&FormatVolumeOptions::new(), total_sectors, bytes_per_sector)
+                .expect("format_boot_sector");
             boot.validate::<Dummy>().expect("validate");
         }
     }
