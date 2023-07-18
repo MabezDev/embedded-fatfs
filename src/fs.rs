@@ -340,6 +340,9 @@ where
     current_status_flags: Cell<FsStatusFlags>,
 }
 
+/// The underlying storage device
+///
+/// Implement this on the underlying storage device, for example, this could be a file or an in-memory buffer.
 pub trait IntoStorage<T: Read + Write + Seek>
 where
     T::Error: From<ReadExactError<T::Error>> + From<WriteAllError<T::Error>>,
