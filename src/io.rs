@@ -1,10 +1,5 @@
-use crate::error::ReadExactError;
-
-pub use embedded_io::ErrorType as IoBase;
-pub use embedded_io::SeekFrom;
-
-use embedded_io::WriteAllError;
-pub use embedded_io::{Read, Seek, Write};
+use crate::{ReadExactError, WriteAllError};
+pub(crate) use embedded_io::{ErrorType as IoBase, Read, Seek, SeekFrom, Write};
 
 pub(crate) trait ReadLeExt {
     type Error;

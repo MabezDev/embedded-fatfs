@@ -1,3 +1,5 @@
+//! Device helper structs
+
 use core::cmp;
 use core::fmt::Debug;
 use elain::{Align, Alignment};
@@ -112,12 +114,12 @@ impl<T: Read + Write + Seek> Seek for StreamSlice<T> {
 /// - `SIZE`: The size of the block, this dictates the size of the internal buffer.
 /// - `ALIGN`: The alignment of the internal buffer.
 ///
-/// If the `buf` provided to either [`Read::read`] or [`Write::write`] meets the following conditions the `buf` 
+/// If the `buf` provided to either [`Read::read`] or [`Write::write`] meets the following conditions the `buf`
 /// will be used directly instead of the intermediate buffer to avoid unnecessary copies:
-/// 
+///
 /// - `buf.len()` is a multiple of block size
 /// - `buf.len()` has the same alignment as the internal buffer
-/// 
+///
 #[derive(Clone)]
 pub struct BlockDevice<T: Read + Write + Seek, const SIZE: usize, const ALIGN: usize>
 where

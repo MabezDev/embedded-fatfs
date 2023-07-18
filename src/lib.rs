@@ -71,7 +71,7 @@ mod log_macros;
 
 mod boot_sector;
 #[cfg(feature = "device")]
-mod device;
+pub mod device;
 mod dir;
 mod dir_entry;
 mod error;
@@ -81,14 +81,11 @@ mod io;
 mod table;
 mod time;
 
-#[cfg(feature = "device")]
-pub use crate::device::*;
 pub use crate::dir::*;
 pub use crate::dir_entry::*;
 pub use crate::error::*;
 pub use crate::file::*;
 pub use crate::fs::*;
-pub use crate::io::*;
 pub use crate::time::*;
 // re-export async iterator
 pub use async_iterator;
