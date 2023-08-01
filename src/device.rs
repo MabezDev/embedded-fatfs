@@ -9,12 +9,32 @@ use embedded_io::{Read, ReadExactError, Seek, Write, WriteAllError};
 #[derive(Debug)]
 pub enum StreamSliceError<T: Debug> {
     InvalidSeek(i64),
+    WriteZero,
+    UnexpectedEof,
     Other(T),
 }
 
 impl<E: Debug> From<E> for StreamSliceError<E> {
     fn from(e: E) -> Self {
         Self::Other(e)
+    }
+}
+
+impl<E: Debug> From<WriteAllError<StreamSliceError<E>>> for StreamSliceError<E> {
+    fn from(e: WriteAllError<StreamSliceError<E>>) -> Self {
+        match e {
+            WriteAllError::WriteZero => Self::WriteZero,
+            WriteAllError::Other(e) => e,
+        }
+    }
+}
+
+impl<E: Debug> From<ReadExactError<StreamSliceError<E>>> for StreamSliceError<E> {
+    fn from(e: ReadExactError<StreamSliceError<E>>) -> Self {
+        match e {
+            ReadExactError::UnexpectedEof => Self::UnexpectedEof,
+            ReadExactError::Other(e) => e,
+        }
     }
 }
 
@@ -31,7 +51,9 @@ impl<E: Debug> embedded_io::Error for StreamSliceError<E> {
     fn kind(&self) -> io::ErrorKind {
         match self {
             StreamSliceError::InvalidSeek(_) => io::ErrorKind::InvalidInput,
-            StreamSliceError::Other(_) => io::ErrorKind::Other,
+            StreamSliceError::Other(_) | StreamSliceError::WriteZero | StreamSliceError::UnexpectedEof => {
+                io::ErrorKind::Other
+            }
         }
     }
 }
