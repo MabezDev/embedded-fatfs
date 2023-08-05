@@ -306,7 +306,7 @@ where
     /// * `Error::NotEnoughSpace` will be returned if there is not enough free space to create a new file.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub async fn create_file(&self, path: &str) -> Result<File<'a, IO, TP, OCC>, Error<IO::Error>> {
-        log::info!("Dir::create_file {}", path);
+        log::trace!("Dir::create_file {}", path);
         let mut split = split_path(path);
         let mut e = self.clone();
         loop {

@@ -233,7 +233,7 @@ where
             let offset = self.inner.seek(io::SeekFrom::Current(0)).await?;
             let block_start = (offset / SIZE as u64) * SIZE as u64;
             let block_end = block_start + SIZE as u64;
-            log::info!("offset {offset}, block_start {block_start}, block_end {block_end}");
+            log::trace!("offset {offset}, block_start {block_start}, block_end {block_end}");
 
             if block_start != self.current_block {
                 // We have seeked to a new block, read it
@@ -245,7 +245,7 @@ where
             let buffer_offset = (offset - block_start) as usize;
             let bytes_to_read = buf.len();
             let end = core::cmp::min(buffer_offset + bytes_to_read, SIZE);
-            log::info!("buffer_offset {buffer_offset}, end {end}");
+            log::trace!("buffer_offset {buffer_offset}, end {end}");
             let bytes_read = end - buffer_offset;
             buf[..bytes_read].copy_from_slice(&self.buffer[buffer_offset..end]);
 
@@ -270,7 +270,7 @@ where
             let offset = self.inner.seek(io::SeekFrom::Current(0)).await?;
             let block_start = (offset / SIZE as u64) * SIZE as u64;
             let block_end = block_start + SIZE as u64;
-            log::info!("offset {offset}, block_start {block_start}, block_end {block_end}");
+            log::trace!("offset {offset}, block_start {block_start}, block_end {block_end}");
 
             if block_start != self.current_block {
                 // We have seeked to a new block, read it
@@ -282,7 +282,7 @@ where
             let buffer_offset = (offset - block_start) as usize;
             let bytes_to_write = buf.len();
             let end = core::cmp::min(buffer_offset + bytes_to_write, SIZE);
-            log::info!("buffer_offset {buffer_offset}, end {end}");
+            log::trace!("buffer_offset {buffer_offset}, end {end}");
             let bytes_written = end - buffer_offset;
             self.buffer[buffer_offset..buffer_offset + bytes_written].copy_from_slice(&buf[..bytes_written]);
 

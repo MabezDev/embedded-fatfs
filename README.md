@@ -11,7 +11,7 @@ A FAT filesystem library implemented in Rust. Built on the shoulders of the amaz
 
 ## Features
 * async
-* read/write file using embedded-io-async Read/Write traits
+* read/write to files using `embedded-io-async` Read/Write traits
 * read directory contents
 * create/remove file or directory
 * rename/move file or directory

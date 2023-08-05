@@ -87,5 +87,3 @@ pub use crate::error::*;
 pub use crate::file::*;
 pub use crate::fs::*;
 pub use crate::time::*;
-// re-export async iterator
-pub use async_iterator;
