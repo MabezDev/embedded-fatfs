@@ -60,6 +60,7 @@
 )]
 #![feature(async_fn_in_trait)]
 #![feature(impl_trait_projections)]
+#![feature(array_chunks)]
 
 extern crate log;
 

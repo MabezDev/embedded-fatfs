@@ -1,0 +1,7 @@
+Describing the block device trait in actual "blocks" is really quite limiting actually
+
+I think the the wrapper approach is better, because it allows hardware to utilize memory more effectively. I.e, we're not limited to only block write and block reads at a time, we have contiguous memory which can be DMA engined to the SDMMC peripheral.
+
+For instance, we can see this behavoir in the embedded-sdmmc impl for stm32 sdmmc: https://github.com/embassy-rs/embassy/blob/main/embassy-stm32/src/sdmmc/mod.rs#L1494-L1511. The DMA could easily transfers all the blocks in on transaction, but because of the signature of the trait we are limited.
+
+Using `BlockDevice` allows the block contract to be upheld, but also allows the hardware to freely use contiguous memory.
