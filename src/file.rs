@@ -1,7 +1,7 @@
 use core::cmp;
 use core::convert::TryFrom;
 
-use embedded_io::{ReadExactError, WriteAllError};
+use embedded_io_async::{ReadExactError, WriteAllError};
 
 use crate::dir_entry::DirEntryEditor;
 use crate::error::Error;

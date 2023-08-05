@@ -1,5 +1,5 @@
 use crate::{ReadExactError, WriteAllError};
-pub(crate) use embedded_io::{ErrorType as IoBase, Read, Seek, SeekFrom, Write};
+pub(crate) use embedded_io_async::{ErrorType as IoBase, Read, Seek, SeekFrom, Write};
 
 pub(crate) trait ReadLeExt {
     type Error;

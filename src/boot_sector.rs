@@ -2,7 +2,7 @@ use core::cmp;
 use core::u16;
 use core::u8;
 
-use embedded_io::WriteAllError;
+use embedded_io_async::WriteAllError;
 
 use crate::dir_entry::DIR_ENTRY_SIZE;
 use crate::error::{Error, IoError, ReadExactError};
@@ -979,13 +979,13 @@ mod tests {
         #[derive(Debug)]
         struct Dummy;
 
-        impl embedded_io::ErrorType for Dummy {
+        impl embedded_io_async::ErrorType for Dummy {
             type Error = Self;
         }
 
-        impl embedded_io::Error for Dummy {
-            fn kind(&self) -> embedded_io::ErrorKind {
-                embedded_io::ErrorKind::TimedOut
+        impl embedded_io_async::Error for Dummy {
+            fn kind(&self) -> embedded_io_async::ErrorKind {
+                embedded_io_async::ErrorKind::TimedOut
             }
         }
 

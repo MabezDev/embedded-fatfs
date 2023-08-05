@@ -1,6 +1,6 @@
 use anyhow::Context;
 use embedded_fatfs::{FileSystem, FsOptions};
-use embedded_io::Write;
+use embedded_io_async::Write;
 use tokio::fs::OpenOptions;
 use tokio::io::BufStream;
 

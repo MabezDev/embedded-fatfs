@@ -3,8 +3,7 @@
 use core::cmp;
 use core::fmt::Debug;
 use elain::{Align, Alignment};
-use embedded_io as io;
-use embedded_io::{Read, ReadExactError, Seek, Write, WriteAllError};
+use embedded_io_async::{Read, ReadExactError, Seek, Write, WriteAllError, SeekFrom};
 
 #[derive(Debug)]
 pub enum StreamSliceError<T: Debug> {
@@ -47,18 +46,18 @@ pub struct StreamSlice<T: Read + Write + Seek> {
     size: u64,
 }
 
-impl<E: Debug> embedded_io::Error for StreamSliceError<E> {
-    fn kind(&self) -> io::ErrorKind {
+impl<E: Debug> embedded_io_async::Error for StreamSliceError<E> {
+    fn kind(&self) -> embedded_io_async::ErrorKind {
         match self {
-            StreamSliceError::InvalidSeek(_) => io::ErrorKind::InvalidInput,
+            StreamSliceError::InvalidSeek(_) => embedded_io_async::ErrorKind::InvalidInput,
             StreamSliceError::Other(_) | StreamSliceError::WriteZero | StreamSliceError::UnexpectedEof => {
-                io::ErrorKind::Other
+                embedded_io_async::ErrorKind::Other
             }
         }
     }
 }
 
-impl<T: Read + Write + Seek> embedded_io::ErrorType for StreamSlice<T> {
+impl<T: Read + Write + Seek> embedded_io_async::ErrorType for StreamSlice<T> {
     type Error = StreamSliceError<T::Error>;
 }
 
@@ -70,7 +69,7 @@ impl<T: Read + Write + Seek> StreamSlice<T> {
     /// `start_offset` must be lower or equal to `end_offset`.
     pub async fn new(mut inner: T, start_offset: u64, end_offset: u64) -> Result<Self, StreamSliceError<T::Error>> {
         debug_assert!(end_offset >= start_offset);
-        inner.seek(io::SeekFrom::Start(start_offset)).await?;
+        inner.seek(SeekFrom::Start(start_offset)).await?;
         let size = end_offset - start_offset;
         Ok(StreamSlice {
             start_offset,
@@ -110,17 +109,17 @@ impl<T: Read + Write + Seek> Write for StreamSlice<T> {
 }
 
 impl<T: Read + Write + Seek> Seek for StreamSlice<T> {
-    async fn seek(&mut self, pos: io::SeekFrom) -> Result<u64, StreamSliceError<T::Error>> {
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, StreamSliceError<T::Error>> {
         let new_offset = match pos {
-            io::SeekFrom::Current(x) => self.current_offset as i64 + x,
-            io::SeekFrom::Start(x) => x as i64,
-            io::SeekFrom::End(x) => self.size as i64 + x,
+            SeekFrom::Current(x) => self.current_offset as i64 + x,
+            SeekFrom::Start(x) => x as i64,
+            SeekFrom::End(x) => self.size as i64 + x,
         };
         if new_offset < 0 || new_offset as u64 > self.size {
             Err(StreamSliceError::InvalidSeek(new_offset))
         } else {
             self.inner
-                .seek(io::SeekFrom::Start(self.start_offset + new_offset as u64))
+                .seek(SeekFrom::Start(self.start_offset + new_offset as u64))
                 .await?;
             self.current_offset = new_offset as u64;
             Ok(self.current_offset)
@@ -178,7 +177,7 @@ where
     }
 }
 
-impl<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize> embedded_io::ErrorType for BlockDevice<T, SIZE, ALIGN>
+impl<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize> embedded_io_async::ErrorType for BlockDevice<T, SIZE, ALIGN>
 where
     Align<ALIGN>: Alignment,
 {
@@ -196,14 +195,14 @@ where
             self.inner.read_exact(buf).await?;
             buf.len()
         } else {
-            let offset = self.inner.seek(io::SeekFrom::Current(0)).await?;
+            let offset = self.inner.seek(SeekFrom::Current(0)).await?;
             let block_start = (offset / SIZE as u64) * SIZE as u64;
             let block_end = block_start + SIZE as u64;
             log::trace!("offset {offset}, block_start {block_start}, block_end {block_end}");
 
             if block_start != self.current_block {
                 // We have seeked to a new block, read it
-                self.inner.seek(io::SeekFrom::Start(block_start)).await?;
+                self.inner.seek(SeekFrom::Start(block_start)).await?;
                 self.inner.read_exact(&mut self.buffer[..]).await?;
             }
 
@@ -215,7 +214,7 @@ where
             let bytes_read = end - buffer_offset;
             buf[..bytes_read].copy_from_slice(&self.buffer[buffer_offset..end]);
 
-            self.inner.seek(io::SeekFrom::Start(offset + bytes_read as u64)).await?;
+            self.inner.seek(SeekFrom::Start(offset + bytes_read as u64)).await?;
 
             bytes_read
         })
@@ -233,14 +232,14 @@ where
             self.inner.write_all(buf).await?;
             buf.len()
         } else {
-            let offset = self.inner.seek(io::SeekFrom::Current(0)).await?;
+            let offset = self.inner.seek(SeekFrom::Current(0)).await?;
             let block_start = (offset / SIZE as u64) * SIZE as u64;
             let block_end = block_start + SIZE as u64;
             log::trace!("offset {offset}, block_start {block_start}, block_end {block_end}");
 
             if block_start != self.current_block {
                 // We have seeked to a new block, read it
-                self.inner.seek(io::SeekFrom::Start(block_start)).await?;
+                self.inner.seek(SeekFrom::Start(block_start)).await?;
                 self.inner.read_exact(&mut self.buffer[..]).await?;
             }
 
@@ -253,11 +252,11 @@ where
             self.buffer[buffer_offset..buffer_offset + bytes_written].copy_from_slice(&buf[..bytes_written]);
 
             // write out the whole block with the modified data
-            self.inner.seek(io::SeekFrom::Start(block_start)).await?;
+            self.inner.seek(SeekFrom::Start(block_start)).await?;
             self.inner.write_all(&self.buffer[..]).await?;
 
             self.inner
-                .seek(io::SeekFrom::Start(offset + bytes_written as u64))
+                .seek(SeekFrom::Start(offset + bytes_written as u64))
                 .await?;
 
             bytes_written
@@ -273,7 +272,7 @@ impl<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize> Seek for BlockDevic
 where
     Align<ALIGN>: Alignment,
 {
-    async fn seek(&mut self, pos: io::SeekFrom) -> Result<u64, T::Error> {
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, T::Error> {
         self.inner.seek(pos).await
     }
 }
@@ -321,7 +320,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use io::ErrorType;
+    use embedded_io_async::ErrorType;
 
     use super::{BlockDevice, *};
 
@@ -344,7 +343,7 @@ mod tests {
     }
 
     impl<T: Read + Write + Seek> Seek for TestBlockDevice<T> {
-        async fn seek(&mut self, pos: io::SeekFrom) -> Result<u64, Self::Error> {
+        async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
             Ok(self.0.seek(pos).await?)
         }
     }
@@ -363,14 +362,14 @@ mod tests {
         let data = read_to_string(&mut stream).await.unwrap();
         assert_eq!(data, "Test data");
 
-        stream.seek(io::SeekFrom::Start(5)).await.unwrap();
+        stream.seek(SeekFrom::Start(5)).await.unwrap();
         let data = read_to_string(&mut stream).await.unwrap();
         assert_eq!(data, "data");
 
-        stream.seek(io::SeekFrom::Start(5)).await.unwrap();
+        stream.seek(SeekFrom::Start(5)).await.unwrap();
         stream.write_all("Rust".as_bytes()).await.unwrap();
         assert!(stream.write_all("X".as_bytes()).await.is_err());
-        stream.seek(io::SeekFrom::Start(0)).await.unwrap();
+        stream.seek(SeekFrom::Start(0)).await.unwrap();
         let data = read_to_string(&mut stream).await.unwrap();
         assert_eq!(data, "Test Rust");
     }
@@ -385,18 +384,18 @@ mod tests {
 
         // Test sector aligned access
         let mut buf = vec![0; 128];
-        block.seek(io::SeekFrom::Start(0)).await.unwrap();
+        block.seek(SeekFrom::Start(0)).await.unwrap();
         block.read_exact(&mut buf[..]).await.unwrap();
         assert_eq!(buf, "A".repeat(128).into_bytes());
 
         let mut buf = vec![0; 128];
-        block.seek(io::SeekFrom::Start(512)).await.unwrap();
+        block.seek(SeekFrom::Start(512)).await.unwrap();
         block.read_exact(&mut buf[..]).await.unwrap();
         assert_eq!(buf, "B".repeat(128).into_bytes());
 
         // Read across sectors
         let mut buf = vec![0; 128];
-        block.seek(io::SeekFrom::Start(512 - 64)).await.unwrap();
+        block.seek(SeekFrom::Start(512 - 64)).await.unwrap();
         block.read_exact(&mut buf[..]).await.unwrap();
         assert_eq!(buf, ("A".repeat(64) + "B".repeat(64).as_str()).into_bytes());
     }
@@ -411,17 +410,17 @@ mod tests {
 
         // Test sector aligned access
         let mut buf = vec![0; 64];
-        block.seek(io::SeekFrom::Start(0)).await.unwrap();
+        block.seek(SeekFrom::Start(0)).await.unwrap();
         block.read_exact(&mut buf[..]).await.unwrap();
         assert_eq!(buf, "A".repeat(64).into_bytes());
 
         let mut buf = vec![0; 64];
-        block.seek(io::SeekFrom::Start(64)).await.unwrap();
+        block.seek(SeekFrom::Start(64)).await.unwrap();
         block.read_exact(&mut buf[..]).await.unwrap();
         assert_eq!(buf, "B".repeat(64).into_bytes());
 
         let mut buf = vec![0; 64];
-        block.seek(io::SeekFrom::Start(32)).await.unwrap();
+        block.seek(SeekFrom::Start(32)).await.unwrap();
         block.read_exact(&mut buf[..]).await.unwrap();
         assert_eq!(buf, ("A".repeat(32) + "B".repeat(32).as_str()).into_bytes());
     }
@@ -436,7 +435,7 @@ mod tests {
 
         // Test sector aligned access
         let data_a = "A".repeat(512).into_bytes();
-        block.seek(io::SeekFrom::Start(0)).await.unwrap();
+        block.seek(SeekFrom::Start(0)).await.unwrap();
         block.write_all(&data_a).await.unwrap();
         assert_eq!(&block.into_inner().0.into_inner().into_inner()[..512], data_a)
     }
@@ -451,7 +450,7 @@ mod tests {
 
         // Test sector aligned access
         let data_a = "A".repeat(512).into_bytes();
-        block.seek(io::SeekFrom::Start(256)).await.unwrap();
+        block.seek(SeekFrom::Start(256)).await.unwrap();
         block.write_all(&data_a).await.unwrap();
         let buf = block.into_inner().0.into_inner().into_inner();
         assert_eq!(&buf[..256], [0; 256]);
@@ -470,7 +469,7 @@ mod tests {
         let mut aligned_buffer: AlignedBuffer<2048, 4> = AlignedBuffer::new();
         let data_a = "A".repeat(512).into_bytes();
         aligned_buffer[..512].copy_from_slice(&data_a[..]);
-        block.seek(io::SeekFrom::Start(0)).await.unwrap();
+        block.seek(SeekFrom::Start(0)).await.unwrap();
         block.write_all(&aligned_buffer[..]).await.unwrap();
 
         // if we wrote directly, the block buffer will be empty
@@ -488,7 +487,7 @@ mod tests {
             BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
 
         let mut aligned_buffer: AlignedBuffer<512, 4> = AlignedBuffer::new();
-        block.seek(io::SeekFrom::Start(0)).await.unwrap();
+        block.seek(SeekFrom::Start(0)).await.unwrap();
         block.read_exact(&mut aligned_buffer[..]).await.unwrap();
 
         // if we read directly, the block buffer will be empty
@@ -500,7 +499,7 @@ mod tests {
         )
     }
 
-    async fn read_to_string<IO: embedded_io::Read>(io: &mut IO) -> Result<String, IO::Error> {
+    async fn read_to_string<IO: embedded_io_async::Read>(io: &mut IO) -> Result<String, IO::Error> {
         let mut buf = Vec::new();
         loop {
             let mut tmp = [0; 256];

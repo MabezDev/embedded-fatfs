@@ -9,7 +9,7 @@ use core::u32;
 
 #[cfg(all(not(feature = "std"), feature = "alloc", feature = "lfn"))]
 use alloc::string::String;
-use embedded_io::WriteAllError;
+use embedded_io_async::WriteAllError;
 #[cfg(feature = "std")]
 use embedded_io_adapters::tokio_1::FromTokio;
 

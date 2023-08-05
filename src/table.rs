@@ -2,7 +2,7 @@ use core::borrow::BorrowMut;
 use core::cmp;
 use core::marker::PhantomData;
 
-use embedded_io::WriteAllError;
+use embedded_io_async::WriteAllError;
 
 use crate::error::{Error, IoError, ReadExactError};
 use crate::fs::{FatType, FsStatusFlags};

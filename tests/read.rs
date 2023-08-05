@@ -2,7 +2,7 @@ use std::str;
 
 use async_iterator::Iterator;
 use embedded_fatfs::{ChronoTimeProvider, FatType, FsOptions, LossyOemCpConverter};
-use embedded_io::{Read, Seek, SeekFrom};
+use embedded_io_async::{Read, Seek, SeekFrom};
 
 const TEST_TEXT: &str = "Rust is cool!\n";
 const FAT12_IMG: &str = "resources/fat12.img";
@@ -292,7 +292,7 @@ async fn test_multi_thread() {
     }
 }
 
-async fn read_to_end<IO: embedded_io::Read>(io: &mut IO) -> Result<Vec<u8>, IO::Error> {
+async fn read_to_end<IO: embedded_io_async::Read>(io: &mut IO) -> Result<Vec<u8>, IO::Error> {
     let mut buf = Vec::new();
     loop {
         let mut tmp = [0; 256];

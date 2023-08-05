@@ -4,7 +4,7 @@ use tokio::fs;
 
 use async_iterator::Iterator as AsyncIterator;
 use embedded_fatfs::{ChronoTimeProvider, FsOptions, LossyOemCpConverter};
-use embedded_io::{Seek, SeekFrom, Write};
+use embedded_io_async::{Seek, SeekFrom, Write};
 
 const FAT12_IMG: &str = "fat12.img";
 const FAT16_IMG: &str = "fat16.img";
@@ -484,7 +484,7 @@ async fn test_multiple_files_in_directory_fat32() {
     call_with_fs(&test_multiple_files_in_directory, FAT32_IMG, 8).await
 }
 
-async fn read_to_end<IO: embedded_io::Read>(io: &mut IO) -> Result<Vec<u8>, IO::Error> {
+async fn read_to_end<IO: embedded_io_async::Read>(io: &mut IO) -> Result<Vec<u8>, IO::Error> {
     let mut buf = Vec::new();
     loop {
         let mut tmp = [0; 256];

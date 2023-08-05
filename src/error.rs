@@ -1,5 +1,5 @@
 use core::fmt::Debug;
-pub(crate) use embedded_io::{Error as IoError, ErrorKind, ReadExactError, WriteAllError};
+pub(crate) use embedded_io_async::{Error as IoError, ErrorKind, ReadExactError, WriteAllError};
 
 /// Error enum with all errors that can be returned by functions from this crate
 ///

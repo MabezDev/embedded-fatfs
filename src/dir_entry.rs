@@ -5,7 +5,7 @@ use core::fmt;
 #[cfg(not(feature = "unicode"))]
 use core::iter;
 use core::str;
-use embedded_io::WriteAllError;
+use embedded_io_async::WriteAllError;
 
 #[cfg(all(not(feature = "std"), feature = "alloc", feature = "lfn"))]
 use alloc::string::String;

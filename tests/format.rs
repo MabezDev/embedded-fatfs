@@ -2,7 +2,7 @@ use std::io;
 
 use async_iterator::Iterator as AsyncIterator;
 use embedded_fatfs::{ChronoTimeProvider, LossyOemCpConverter};
-use embedded_io::Write;
+use embedded_io_async::Write;
 
 const KB: u64 = 1024;
 const MB: u64 = KB * 1024;
@@ -163,7 +163,7 @@ async fn test_format_volume_label_and_id() {
     assert_eq!(fs.volume_id(), 1234);
 }
 
-async fn read_to_end<IO: embedded_io::Read>(io: &mut IO) -> Result<Vec<u8>, IO::Error> {
+async fn read_to_end<IO: embedded_io_async::Read>(io: &mut IO) -> Result<Vec<u8>, IO::Error> {
     let mut buf = Vec::new();
     loop {
         let mut tmp = [0; 256];
