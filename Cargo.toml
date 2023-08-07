@@ -40,12 +40,14 @@ log_level_trace = ["log_level_debug"]
 default = ["chrono", "std", "alloc", "lfn", "unicode", "log_level_trace"]
 
 [dependencies]
+# core deps
 bitflags = "1.0"
 log = "0.4"
-embedded-io-async = {version = "0.5", git = "https://github.com/rust-embedded/embedded-hal" }
+embedded-io-async = "0.5"
 async-iterator = { version = "2.1", default-features = false }
 
-embedded-io-adapters = {version = "0.1", git = "https://github.com/rust-embedded/embedded-hal", package = "embedded-io-adapters", features = ["tokio-1"], optional = true }
+# optional deps
+embedded-io-adapters = { version = "0.5", package = "embedded-io-adapters", features = ["tokio-1"], optional = true }
 chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
 tokio = { version = "1", default-features = false, optional = true }
 elain = { version = "0.3", optional = true }
