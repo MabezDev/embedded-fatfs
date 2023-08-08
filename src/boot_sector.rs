@@ -16,6 +16,7 @@ const KB_64: u64 = 1024;
 const MB_64: u64 = KB_64 * 1024;
 const GB_64: u64 = MB_64 * 1024;
 
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Default, Debug, Clone)]
 pub(crate) struct BiosParameterBlock {
     pub(crate) bytes_per_sector: u16,

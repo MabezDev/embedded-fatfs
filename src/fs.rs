@@ -31,6 +31,7 @@ use crate::time::{DefaultTimeProvider, TimeProvider};
 /// A type of FAT filesystem.
 ///
 /// `FatType` values are based on the size of File Allocation Table entry.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum FatType {
     /// 12 bits per FAT entry
@@ -82,6 +83,7 @@ impl FatType {
 }
 
 /// A FAT volume status flags retrived from the Boot Sector and the allocation table second entry.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct FsStatusFlags {
     pub(crate) dirty: bool,
@@ -131,6 +133,7 @@ pub trait ReadWriteSeek: Read + Write + Seek {}
 
 impl<T: IoBase + Read + Write + Seek> ReadWriteSeek for T {}
 
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Default, Debug)]
 struct FsInfoSector {
     free_cluster_count: Option<u32>,
@@ -248,6 +251,7 @@ impl FsInfoSector {
 /// A FAT filesystem mount options.
 ///
 /// Options are specified as an argument for `FileSystem::new` method.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Copy, Clone, Debug, Default)]
 pub struct FsOptions<TP, OCC> {
     pub(crate) update_accessed_date: bool,
@@ -295,6 +299,7 @@ impl<TP: TimeProvider, OCC: OemCpConverter> FsOptions<TP, OCC> {
 }
 
 /// A FAT volume statistics.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct FileSystemStats {
     cluster_size: u32,
@@ -938,6 +943,7 @@ pub trait OemCpConverter: Debug {
 }
 
 /// Default implementation of `OemCpConverter` that changes all non-ASCII characters to the replacement character (U+FFFD).
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LossyOemCpConverter {
     _dummy: (),
@@ -999,6 +1005,7 @@ where
 ///
 /// This struct implements a builder pattern.
 /// Options are specified as an argument for `format_volume` function.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Default, Debug, Clone)]
 pub struct FormatVolumeOptions {
     pub(crate) bytes_per_sector: Option<u16>,

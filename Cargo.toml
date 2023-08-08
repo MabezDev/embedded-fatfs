@@ -35,6 +35,8 @@ log_level_info  = ["log_level_warn"]
 log_level_debug = ["log_level_info"]
 # Enable all logging levels: trace and up
 log_level_trace = ["log_level_debug"]
+# enable defmt support
+defmt = ["dep:defmt"]
 
 # Default features
 default = ["chrono", "std", "alloc", "lfn", "unicode", "log_level_trace"]
@@ -51,6 +53,7 @@ embedded-io-adapters = { version = "0.5", package = "embedded-io-adapters", feat
 chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
 tokio = { version = "1", default-features = false, optional = true }
 elain = { version = "0.3", optional = true }
+defmt = { version = "0.3", optional = true }
 
 [dev-dependencies]
 env_logger = "0.9"

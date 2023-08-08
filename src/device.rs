@@ -5,6 +5,7 @@ use core::fmt::Debug;
 use elain::{Align, Alignment};
 use embedded_io_async::{Read, ReadExactError, Seek, Write, WriteAllError, SeekFrom};
 
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug)]
 pub enum StreamSliceError<T: Debug> {
     InvalidSeek(i64),

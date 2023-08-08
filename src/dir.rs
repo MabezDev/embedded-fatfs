@@ -1168,6 +1168,7 @@ impl Iterator for LfnEntriesGenerator {
 #[cfg(not(feature = "lfn"))]
 impl ExactSizeIterator for LfnEntriesGenerator {}
 
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Default, Debug, Clone)]
 struct ShortNameGenerator {
     chksum: u16,

@@ -4,6 +4,7 @@ pub(crate) use embedded_io_async::{Error as IoError, ErrorKind, ReadExactError, 
 /// Error enum with all errors that can be returned by functions from this crate
 ///
 /// Generic parameter `T` is a type of external error returned by the user provided storage
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error<T> {

@@ -17,6 +17,7 @@ const MAX_DAY: u16 = 31;
 /// A DOS compatible date.
 ///
 /// Used by `DirEntry` time-related methods.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[non_exhaustive]
 pub struct Date {
@@ -59,6 +60,7 @@ impl Date {
 /// A DOS compatible time.
 ///
 /// Used by `DirEntry` time-related methods.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[non_exhaustive]
 pub struct Time {
@@ -112,6 +114,7 @@ impl Time {
 /// A DOS compatible date and time.
 ///
 /// Used by `DirEntry` time-related methods.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[non_exhaustive]
 pub struct DateTime {

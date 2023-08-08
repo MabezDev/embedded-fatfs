@@ -36,6 +36,7 @@ where
 /// This is created by the `extents` method on `File`, and represents
 /// a byte range on the disk that contains a file's data. All values
 /// are in bytes.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Debug)]
 pub struct Extent {
     pub offset: u64,

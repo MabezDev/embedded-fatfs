@@ -19,6 +19,7 @@ type Fat32 = Fat<u32>;
 
 pub const RESERVED_FAT_ENTRIES: u32 = 2;
 
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 enum FatValue {
     Free,

@@ -22,6 +22,7 @@ use crate::time::{Date, DateTime};
 bitflags! {
     /// A FAT file attributes.
     #[derive(Default)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct FileAttributes: u8 {
         const READ_ONLY  = 0x01;
         const HIDDEN     = 0x02;
@@ -65,6 +66,7 @@ fn char_to_uppercase(c: char) -> iter::Once<char> {
 }
 
 /// Decoded file short name
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ShortName {
     name: [u8; 12],
@@ -129,6 +131,7 @@ impl ShortName {
 }
 
 #[allow(dead_code)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Debug, Default)]
 pub(crate) struct DirFileEntryData {
     name: [u8; SFN_SIZE],
@@ -291,6 +294,7 @@ impl DirFileEntryData {
 }
 
 #[allow(dead_code)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Debug, Default)]
 pub(crate) struct DirLfnEntryData {
     order: u8,
@@ -369,6 +373,7 @@ impl DirLfnEntryData {
 }
 
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub(crate) enum DirEntryData {
     File(DirFileEntryData),
     Lfn(DirLfnEntryData),
@@ -466,6 +471,7 @@ impl DirEntryData {
     }
 }
 
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Debug)]
 pub(crate) struct DirEntryEditor {
     data: DirFileEntryData,
@@ -753,6 +759,16 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         self.data.fmt(f)
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl<IO: ReadWriteSeek, TP, OCC> defmt::Format for DirEntry<'_, IO, TP, OCC>
+where
+    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
+{
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(fmt, "{}", self.data);
     }
 }
 
