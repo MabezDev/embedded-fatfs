@@ -63,3 +63,8 @@ jobs:
         with:
           command: build
           args: --no-default-features --features alloc,lfn,unicode,device
+      - name: Run cargo build - Check defmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --no-default-features --features alloc,lfn,unicode,device,defmt
