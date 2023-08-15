@@ -262,6 +262,35 @@ where
         Ok(e)
     }
 
+    /// Opens existing meta.
+    ///
+    /// `path` is a '/' separated file path relative to self directory.
+    ///
+    /// # Errors
+    ///
+    /// Errors that can be returned:
+    ///
+    /// * `Error::NotFound` will be returned if `path` points to a non-existing directory entry.
+    /// * `Error::InvalidInput` will be returned if `path` points to a file that is a directory.
+    /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
+    pub fn open_meta(&self, path: &str) -> Result<DirEntry<'a, IO, TP, OCC>, Error<IO::Error>> {
+        trace!("Dir::open_meta {}", path);
+        let mut split = split_path(path);
+        let mut e = self.clone();
+        loop {
+            let (name, rest_opt) = split;
+            match rest_opt {
+                Some(rest) => {
+                    split = split_path(rest);
+                    e = e.find_entry(name, Some(true), None).await?.to_dir();
+                }
+                None => {
+                    return Ok(e.find_entry(name, None, None).await?);
+                }
+            }
+        }
+    }
+
     /// Opens existing file.
     ///
     /// `path` is a '/' separated file path relative to self directory.
