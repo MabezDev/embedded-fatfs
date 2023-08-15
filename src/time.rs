@@ -194,6 +194,16 @@ pub trait TimeProvider: Debug {
     fn get_current_date_time(&self) -> DateTime;
 }
 
+impl<T: TimeProvider + ?Sized> TimeProvider for &T {
+    fn get_current_date(&self) -> Date {
+        (*self).get_current_date()
+    }
+
+    fn get_current_date_time(&self) -> DateTime {
+        (*self).get_current_date_time()
+    }
+}
+
 /// `TimeProvider` implementation that returns current local time retrieved from `chrono` crate.
 #[cfg(feature = "chrono")]
 #[derive(Debug, Clone, Copy, Default)]

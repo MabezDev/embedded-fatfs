@@ -942,6 +942,16 @@ pub trait OemCpConverter: Debug {
     fn encode(&self, uni_char: char) -> Option<u8>;
 }
 
+impl<T: OemCpConverter + ?Sized> OemCpConverter for &T {
+    fn decode(&self, oem_char: u8) -> char {
+        (*self).decode(oem_char)
+    }
+
+    fn encode(&self, uni_char: char) -> Option<u8> {
+        (*self).encode(uni_char)
+    }
+}
+
 /// Default implementation of `OemCpConverter` that changes all non-ASCII characters to the replacement character (U+FFFD).
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, Clone, Copy, Default)]
