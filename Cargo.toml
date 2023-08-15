@@ -25,26 +25,17 @@ alloc = []
 unicode = []
 # device helpers
 device = ["elain"]
-# Enable only error-level logging
-log_level_error = []
-# Enable logging levels warn and up
-log_level_warn  = ["log_level_error"]
-# Enable logging levels info and up
-log_level_info  = ["log_level_warn"]
-# Enable logging levels debug and up
-log_level_debug = ["log_level_info"]
-# Enable all logging levels: trace and up
-log_level_trace = ["log_level_debug"]
+# enable log support
+log = ["dep:log"]
 # enable defmt support
 defmt = ["dep:defmt"]
 
 # Default features
-default = ["chrono", "std", "alloc", "lfn", "unicode", "log_level_trace"]
+default = ["chrono", "std", "alloc", "lfn", "unicode", "log"]
 
 [dependencies]
 # core deps
 bitflags = "1.0"
-log = "0.4"
 embedded-io-async = "0.5"
 async-iterator = { version = "2.1", default-features = false }
 
@@ -53,6 +44,7 @@ embedded-io-adapters = { version = "0.5", package = "embedded-io-adapters", feat
 chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
 tokio = { version = "1", default-features = false, optional = true }
 elain = { version = "0.3", optional = true }
+log = { version = "0.4", optional = true }
 defmt = { version = "0.3", optional = true }
 
 [dev-dependencies]

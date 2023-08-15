@@ -61,13 +61,11 @@
 #![feature(async_fn_in_trait)]
 #![feature(impl_trait_projections)]
 
-extern crate log;
-
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
 extern crate alloc;
 
-#[macro_use]
-mod log_macros;
+// MUST be the first module listed
+mod fmt;
 
 mod boot_sector;
 #[cfg(feature = "device")]
