@@ -422,7 +422,7 @@ where
         }
     }
 
-    async fn is_empty(&self) -> Result<bool, Error<IO::Error>> {
+    pub async fn is_empty(&self) -> Result<bool, Error<IO::Error>> {
         trace!("Dir::is_empty");
         // check if directory contains no files
         let mut iter = self.iter();
