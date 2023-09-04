@@ -494,6 +494,8 @@ where
             stream.seek(SeekFrom::Current(-i64::from(DIR_ENTRY_SIZE))).await?;
             data.serialize(&mut stream).await?;
         }
+        // remove requires stream flush
+        stream.flush().await?;
         Ok(())
     }
 
@@ -594,6 +596,9 @@ where
         // save new directory entry
         let sfn_entry = e.data.renamed(short_name);
         dst_dir.write_entry(dst_name, sfn_entry).await?;
+
+        // rename requires stream flush (no async drop :()
+        stream.flush().await?;
         Ok(())
     }
 
@@ -703,6 +708,9 @@ where
         let start_abs_pos = end_abs_pos - u64::from(DIR_ENTRY_SIZE);
         // return new logical entry descriptor
         let short_name = ShortName::new(raw_entry.name());
+
+        // explicit flush call because async drop doesn't exist
+        stream.flush().await?;
         Ok(DirEntry {
             data: raw_entry,
             short_name,

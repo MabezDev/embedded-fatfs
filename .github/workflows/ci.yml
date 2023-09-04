@@ -38,7 +38,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --verbose --features device
+          args: --verbose --features device,dirty-file-panic # always supply dirty-file-panic to find internal flushing issues
         if: ${{ matrix.run_tests }}
 
       - name: Run cargo build - no_std

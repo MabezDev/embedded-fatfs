@@ -3,7 +3,7 @@
 use core::cmp;
 use core::fmt::Debug;
 use elain::{Align, Alignment};
-use embedded_io_async::{Read, ReadExactError, Seek, Write, WriteAllError, SeekFrom};
+use embedded_io_async::{Read, ReadExactError, Seek, SeekFrom, Write, WriteAllError};
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug)]
@@ -132,7 +132,7 @@ impl<T: Read + Write + Seek> Seek for StreamSlice<T> {
 ///
 /// The generic parameter `SIZE` is used by [`BlockDevice`] to determine the block size of the device.
 /// The underlying device must implemented the [`Read::read`], [`Write::write`] and [`Seek::seek`] traits.
-/// 
+///
 /// This trait can be implemented multiple times to support various different block sizes.
 pub trait Device<const SIZE: usize>: Read + Write + Seek {}
 
@@ -178,7 +178,8 @@ where
     }
 }
 
-impl<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize> embedded_io_async::ErrorType for BlockDevice<T, SIZE, ALIGN>
+impl<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize> embedded_io_async::ErrorType
+    for BlockDevice<T, SIZE, ALIGN>
 where
     Align<ALIGN>: Alignment,
 {
@@ -199,7 +200,12 @@ where
             let offset = self.inner.seek(SeekFrom::Current(0)).await?;
             let block_start = (offset / SIZE as u64) * SIZE as u64;
             let block_end = block_start + SIZE as u64;
-            trace!("offset {}, block_start {}, block_end {}", offset, block_start, block_end);
+            trace!(
+                "offset {}, block_start {}, block_end {}",
+                offset,
+                block_start,
+                block_end
+            );
 
             if block_start != self.current_block {
                 // We have seeked to a new block, read it
@@ -236,7 +242,12 @@ where
             let offset = self.inner.seek(SeekFrom::Current(0)).await?;
             let block_start = (offset / SIZE as u64) * SIZE as u64;
             let block_end = block_start + SIZE as u64;
-            trace!("offset {}, block_start {}, block_end {}", offset, block_start, block_end);
+            trace!(
+                "offset {}, block_start {}, block_end {}",
+                offset,
+                block_start,
+                block_end
+            );
 
             if block_start != self.current_block {
                 // We have seeked to a new block, read it
@@ -256,9 +267,7 @@ where
             self.inner.seek(SeekFrom::Start(block_start)).await?;
             self.inner.write_all(&self.buffer[..]).await?;
 
-            self.inner
-                .seek(SeekFrom::Start(offset + bytes_written as u64))
-                .await?;
+            self.inner.seek(SeekFrom::Start(offset + bytes_written as u64)).await?;
 
             bytes_written
         })
