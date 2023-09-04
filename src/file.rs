@@ -254,6 +254,7 @@ where
         if let Some(e) = &self.entry {
             if e.dirty() {
                 warn!("Dropping dirty file before flushing");
+                #[cfg(feature = "dirty-file-panic")]
                 {
                     panic!("Dropping unflushed file");
                 }

@@ -29,6 +29,8 @@ device = ["elain"]
 log = ["dep:log"]
 # enable defmt support
 defmt = ["dep:defmt"]
+# panic when dropping dirty files, files should be flushed before hand
+dirty-file-panic = []
 
 # Default features
 default = ["chrono", "std", "alloc", "lfn", "unicode", "log"]
