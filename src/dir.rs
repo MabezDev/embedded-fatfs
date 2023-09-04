@@ -596,6 +596,9 @@ where
         // save new directory entry
         let sfn_entry = e.data.renamed(short_name);
         dst_dir.write_entry(dst_name, sfn_entry).await?;
+
+        // rename requires stream flush (no async drop :()
+        stream.flush().await?;
         Ok(())
     }
 

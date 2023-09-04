@@ -23,63 +23,63 @@ async fn basic_fs_test(fs: &FileSystem) {
         assert_eq!(stats.total_clusters(), stats.free_clusters());
     }
 
-    // let root_dir = fs.root_dir();
-    // let entries = root_dir.iter().map(|r| async { r.unwrap() }).collect::<Vec<_>>().await;
-    // assert_eq!(entries.len(), 0);
+    let root_dir = fs.root_dir();
+    let entries = root_dir.iter().map(|r| async { r.unwrap() }).collect::<Vec<_>>().await;
+    assert_eq!(entries.len(), 0);
 
-    // let subdir1 = root_dir.create_dir("subdir1").await.expect("create_dir subdir1");
-    // let subdir2 = root_dir
-    //     .create_dir("subdir1/subdir2 with long name")
-    //     .await
-    //     .expect("create_dir subdir2");
+    let subdir1 = root_dir.create_dir("subdir1").await.expect("create_dir subdir1");
+    let subdir2 = root_dir
+        .create_dir("subdir1/subdir2 with long name")
+        .await
+        .expect("create_dir subdir2");
 
-    // let test_str = TEST_STR.repeat(1000);
-    // {
-    //     let mut file = subdir2.create_file("test file name.txt").await.expect("create file");
-    //     file.truncate().await.expect("truncate file");
-    //     file.write_all(test_str.as_bytes()).await.expect("write file");
-    //     file.flush().await.unwrap(); // important, no more flush on drop :(
-    // }
+    let test_str = TEST_STR.repeat(1000);
+    {
+        let mut file = subdir2.create_file("test file name.txt").await.expect("create file");
+        file.truncate().await.expect("truncate file");
+        file.write_all(test_str.as_bytes()).await.expect("write file");
+        file.flush().await.unwrap(); // important, no more flush on drop :(
+    }
 
-    // let mut file = root_dir
-    //     .open_file("subdir1/subdir2 with long name/test file name.txt")
-    //     .await
-    //     .unwrap();
-    // let content = read_to_end(&mut file).await.unwrap();
-    // assert_eq!(core::str::from_utf8(&content).unwrap(), test_str);
+    let mut file = root_dir
+        .open_file("subdir1/subdir2 with long name/test file name.txt")
+        .await
+        .unwrap();
+    let content = read_to_end(&mut file).await.unwrap();
+    assert_eq!(core::str::from_utf8(&content).unwrap(), test_str);
 
-    // let filenames = root_dir
-    //     .iter()
-    //     .map(|r| async { r.unwrap().file_name() })
-    //     .collect::<Vec<String>>()
-    //     .await;
-    // assert_eq!(filenames, ["subdir1"]);
+    let filenames = root_dir
+        .iter()
+        .map(|r| async { r.unwrap().file_name() })
+        .collect::<Vec<String>>()
+        .await;
+    assert_eq!(filenames, ["subdir1"]);
 
-    // let filenames = subdir2
-    //     .iter()
-    //     .map(|r| async { r.unwrap().file_name() })
-    //     .collect::<Vec<String>>()
-    //     .await;
-    // assert_eq!(filenames, [".", "..", "test file name.txt"]);
+    let filenames = subdir2
+        .iter()
+        .map(|r| async { r.unwrap().file_name() })
+        .collect::<Vec<String>>()
+        .await;
+    assert_eq!(filenames, [".", "..", "test file name.txt"]);
 
-    // subdir1
-    //     .rename("subdir2 with long name/test file name.txt", &root_dir, "new-name.txt")
-    //     .await
-    //     .expect("rename");
+    subdir1
+        .rename("subdir2 with long name/test file name.txt", &root_dir, "new-name.txt")
+        .await
+        .expect("rename");
 
-    // let filenames = subdir2
-    //     .iter()
-    //     .map(|r| async { r.unwrap().file_name() })
-    //     .collect::<Vec<String>>()
-    //     .await;
-    // assert_eq!(filenames, [".", ".."]);
+    let filenames = subdir2
+        .iter()
+        .map(|r| async { r.unwrap().file_name() })
+        .collect::<Vec<String>>()
+        .await;
+    assert_eq!(filenames, [".", ".."]);
 
-    // let filenames = root_dir
-    //     .iter()
-    //     .map(|r| async { r.unwrap().file_name() })
-    //     .collect::<Vec<String>>()
-    //     .await;
-    // assert_eq!(filenames, ["subdir1", "new-name.txt"]);
+    let filenames = root_dir
+        .iter()
+        .map(|r| async { r.unwrap().file_name() })
+        .collect::<Vec<String>>()
+        .await;
+    assert_eq!(filenames, ["subdir1", "new-name.txt"]);
 }
 
 async fn test_format_fs(opts: embedded_fatfs::FormatVolumeOptions, total_bytes: u64) -> FileSystem {
