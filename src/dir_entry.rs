@@ -18,6 +18,7 @@ use crate::file::File;
 use crate::fs::{FatType, FileSystem, OemCpConverter, ReadWriteSeek};
 use crate::io::{self, Read, ReadLeExt, Write, WriteLeExt};
 use crate::time::{Date, DateTime};
+use crate::FileContext;
 
 bitflags! {
     /// A FAT file attributes.
@@ -132,7 +133,7 @@ impl ShortName {
 
 #[allow(dead_code)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct DirFileEntryData {
     name: [u8; SFN_SIZE],
     attrs: FileAttributes,
@@ -472,7 +473,7 @@ impl DirEntryData {
 }
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct DirEntryEditor {
     data: DirFileEntryData,
     pos: u64,
@@ -664,6 +665,36 @@ where
     pub fn to_file(&self) -> File<'a, IO, TP, OCC> {
         assert!(!self.is_dir(), "Not a file entry");
         File::new(self.first_cluster(), Some(self.editor()), self.fs)
+    }
+
+    /// Returns `File` struct for this entry, resuming from an existing [`FileContext`].
+    ///
+    /// # Panics
+    ///
+    /// Will panic if this is not a file.
+    /// Will panic if the [`FileContext`] is not for the same file, or the file has been modified since.
+    #[must_use]
+    pub fn to_file_with_context(&self, context: FileContext) -> File<'a, IO, TP, OCC> {
+        assert!(!self.is_dir(), "Not a file entry");
+        assert_eq!(Some(self.editor()), context.entry);
+        File::new_from_context(context, self.fs)
+    }
+
+    /// Returns `File` struct for this entry, resuming from an existing [`FileContext`]. Returns an error if 
+    /// the [`FileContext`] is not for the same file, or the underlying file has been modified since the 
+    /// context was created.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if this is not a file.
+    #[must_use]
+    pub fn try_to_file_with_context(&self, context: FileContext) -> Result<File<'a, IO, TP, OCC>, Error<IO::Error>> {
+        assert!(!self.is_dir(), "Not a file entry");
+        if context.entry != Some(self.editor()) {
+            return Err(Error::InvalidInput);
+        }
+        
+        Ok(File::new_from_context(context, self.fs))
     }
 
     /// Returns `Dir` struct for this entry.

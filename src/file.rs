@@ -19,16 +19,28 @@ pub struct File<'a, IO: ReadWriteSeek, TP, OCC>
 where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
-    // Note first_cluster is None if file is empty
-    first_cluster: Option<u32>,
-    // Note: if offset points between clusters current_cluster is the previous cluster
-    current_cluster: Option<u32>,
-    // current position in this file
-    offset: u32,
-    // file dir entry editor - None for root dir
-    entry: Option<DirEntryEditor>,
+    context: FileContext,
     // file-system reference
     fs: &'a FileSystem<IO, TP, OCC>,
+}
+
+/// A context of an existing [`File`].
+///
+/// This is obtained by calling [`File::close`] and can be used to resume 
+/// operations on a [`File`] with the [`DirEntry::to_file_with_context`](crate::dir_entry::DirEntry::to_file_with_context)
+/// method. This can be useful for large files, because to `Seek` to the 
+/// end of the file would mean scanning the whole cluster chain which 
+/// has `O(n)` time complexity.
+#[derive(Clone)]
+pub struct FileContext {
+    // Note first_cluster is None if file is empty
+    pub(crate) first_cluster: Option<u32>,
+    // Note: if offset points between clusters current_cluster is the previous cluster
+    pub(crate) current_cluster: Option<u32>,
+    // current position in this file
+    pub(crate) offset: u32,
+    // file dir entry editor - None for root dir
+    pub(crate) entry: Option<DirEntryEditor>,
 }
 
 /// An extent containing a file's data on disk.
@@ -53,12 +65,18 @@ where
         fs: &'a FileSystem<IO, TP, OCC>,
     ) -> Self {
         File {
-            first_cluster,
-            entry,
+            context: FileContext {
+                first_cluster,
+                entry,
+                current_cluster: None, // cluster before first one
+                offset: 0,
+            },
             fs,
-            current_cluster: None, // cluster before first one
-            offset: 0,
         }
+    }
+
+    pub(crate) fn new_from_context(context: FileContext, fs: &'a FileSystem<IO, TP, OCC>) -> Self {
+        File { context, fs }
     }
 
     /// Truncate file in current position.
@@ -72,24 +90,24 @@ where
     /// Will panic if this is the root directory.
     pub async fn truncate(&mut self) -> Result<(), Error<IO::Error>> {
         trace!("File::truncate");
-        if let Some(ref mut e) = self.entry {
-            e.set_size(self.offset);
-            if self.offset == 0 {
+        if let Some(ref mut e) = self.context.entry {
+            e.set_size(self.context.offset);
+            if self.context.offset == 0 {
                 e.set_first_cluster(None, self.fs.fat_type());
             }
         } else {
             // Note: we cannot handle this case because there is no size field
             panic!("Trying to truncate a file without an entry");
         }
-        if let Some(current_cluster) = self.current_cluster {
+        if let Some(current_cluster) = self.context.current_cluster {
             // current cluster is none only if offset is 0
-            debug_assert!(self.offset > 0);
+            debug_assert!(self.context.offset > 0);
             self.fs.truncate_cluster_chain(current_cluster).await
         } else {
-            debug_assert!(self.offset == 0);
-            if let Some(n) = self.first_cluster {
+            debug_assert!(self.context.offset == 0);
+            if let Some(n) = self.context.first_cluster {
                 self.fs.free_cluster_chain(n).await?;
-                self.first_cluster = None;
+                self.context.first_cluster = None;
             }
             Ok(())
         }
@@ -106,7 +124,7 @@ where
     //     Some(s) => s,
     //     None => return None.into_iter().flatten(),
     // };
-    // let first = match self.first_cluster {
+    // let first = match self.context.first_cluster {
     //     Some(f) => f,
     //     None => return None.into_iter().flatten(),
     // };
@@ -134,10 +152,10 @@ where
     pub(crate) fn abs_pos(&self) -> Option<u64> {
         // Returns current position relative to filesystem start
         // Note: when between clusters it returns position after previous cluster
-        match self.current_cluster {
+        match self.context.current_cluster {
             Some(n) => {
                 let cluster_size = self.fs.cluster_size();
-                let offset_mod_cluster_size = self.offset % cluster_size;
+                let offset_mod_cluster_size = self.context.offset % cluster_size;
                 let offset_in_cluster = if offset_mod_cluster_size == 0 {
                     // position points between clusters - we are returning previous cluster so
                     // offset must be set to the cluster size
@@ -153,7 +171,7 @@ where
     }
 
     async fn flush_dir_entry(&mut self) -> Result<(), Error<IO::Error>> {
-        if let Some(ref mut e) = self.entry {
+        if let Some(ref mut e) = self.context.entry {
             e.flush(self.fs).await?;
         }
         Ok(())
@@ -165,7 +183,7 @@ where
     /// Deprecated: if needed implement a custom `TimeProvider`.
     #[deprecated]
     pub fn set_created(&mut self, date_time: DateTime) {
-        if let Some(ref mut e) = self.entry {
+        if let Some(ref mut e) = self.context.entry {
             e.set_created(date_time);
         }
     }
@@ -176,7 +194,7 @@ where
     /// Deprecated: if needed implement a custom `TimeProvider`.
     #[deprecated]
     pub fn set_accessed(&mut self, date: Date) {
-        if let Some(ref mut e) = self.entry {
+        if let Some(ref mut e) = self.context.entry {
             e.set_accessed(date);
         }
     }
@@ -187,20 +205,20 @@ where
     /// Deprecated: if needed implement a custom `TimeProvider`.
     #[deprecated]
     pub fn set_modified(&mut self, date_time: DateTime) {
-        if let Some(ref mut e) = self.entry {
+        if let Some(ref mut e) = self.context.entry {
             e.set_modified(date_time);
         }
     }
 
     fn size(&self) -> Option<u32> {
-        match self.entry {
+        match self.context.entry {
             Some(ref e) => e.inner().size(),
             None => None,
         }
     }
 
     fn is_dir(&self) -> bool {
-        match self.entry {
+        match self.context.entry {
             Some(ref e) => e.inner().is_dir(),
             None => false,
         }
@@ -208,18 +226,18 @@ where
 
     fn bytes_left_in_file(&self) -> Option<usize> {
         // Note: seeking beyond end of file is not allowed so overflow is impossible
-        self.size().map(|s| (s - self.offset) as usize)
+        self.size().map(|s| (s - self.context.offset) as usize)
     }
 
     fn set_first_cluster(&mut self, cluster: u32) {
-        self.first_cluster = Some(cluster);
-        if let Some(ref mut e) = self.entry {
-            e.set_first_cluster(self.first_cluster, self.fs.fat_type());
+        self.context.first_cluster = Some(cluster);
+        if let Some(ref mut e) = self.context.entry {
+            e.set_first_cluster(self.context.first_cluster, self.fs.fat_type());
         }
     }
 
     pub(crate) fn first_cluster(&self) -> Option<u32> {
-        self.first_cluster
+        self.context.first_cluster
     }
 
     async fn flush(&mut self) -> Result<(), Error<IO::Error>> {
@@ -235,14 +253,29 @@ where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
     fn update_dir_entry_after_write(&mut self) {
-        let offset = self.offset;
-        if let Some(ref mut e) = self.entry {
+        let offset = self.context.offset;
+        if let Some(ref mut e) = self.context.entry {
             let now = self.fs.options.time_provider.get_current_date_time();
             e.set_modified(now);
             if e.inner().size().map_or(false, |s| offset > s) {
                 e.set_size(offset);
             }
         }
+    }
+
+    /// Manually close the file
+    ///
+    /// This method flushes before returning.
+    /// A [`FileContext`] is returned, which can be used in conjunction with the
+    /// `to_file_with_context` API.
+    pub async fn close(mut self) -> Result<FileContext, Error<IO::Error>> {
+        self.flush().await?;
+        Ok(FileContext {
+            first_cluster: self.context.first_cluster,
+            current_cluster: self.context.current_cluster,
+            offset: self.context.offset,
+            entry: self.context.entry.clone(),
+        })
     }
 }
 
@@ -251,7 +284,7 @@ where
     IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
 {
     fn drop(&mut self) {
-        if let Some(e) = &self.entry {
+        if let Some(e) = &self.context.entry {
             if e.dirty() {
                 warn!("Dropping dirty file before flushing");
                 #[cfg(feature = "dirty-file-panic")]
@@ -270,10 +303,7 @@ where
 {
     fn clone(&self) -> Self {
         File {
-            first_cluster: self.first_cluster,
-            current_cluster: self.current_cluster,
-            offset: self.offset,
-            entry: self.entry.clone(),
+            context: self.context.clone(),
             fs: self.fs,
         }
     }
@@ -293,10 +323,10 @@ where
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         trace!("File::read");
         let cluster_size = self.fs.cluster_size();
-        let current_cluster_opt = if self.offset % cluster_size == 0 {
+        let current_cluster_opt = if self.context.offset % cluster_size == 0 {
             // next cluster
-            match self.current_cluster {
-                None => self.first_cluster,
+            match self.context.current_cluster {
+                None => self.context.first_cluster,
                 Some(n) => {
                     let r = self.fs.cluster_iter(n).next().await;
                     match r {
@@ -307,13 +337,13 @@ where
                 }
             }
         } else {
-            self.current_cluster
+            self.context.current_cluster
         };
         let current_cluster = match current_cluster_opt {
             Some(n) => n,
             None => return Ok(0),
         };
-        let offset_in_cluster = self.offset % cluster_size;
+        let offset_in_cluster = self.context.offset % cluster_size;
         let bytes_left_in_cluster = (cluster_size - offset_in_cluster) as usize;
         let bytes_left_in_file = self.bytes_left_in_file().unwrap_or(bytes_left_in_cluster);
         let read_size = cmp::min(cmp::min(buf.len(), bytes_left_in_cluster), bytes_left_in_file);
@@ -330,10 +360,10 @@ where
         if read_bytes == 0 {
             return Ok(0);
         }
-        self.offset += read_bytes as u32;
-        self.current_cluster = Some(current_cluster);
+        self.context.offset += read_bytes as u32;
+        self.context.current_cluster = Some(current_cluster);
 
-        if let Some(ref mut e) = self.entry {
+        if let Some(ref mut e) = self.context.entry {
             if self.fs.options.update_accessed_date {
                 let now = self.fs.options.time_provider.get_current_date();
                 e.set_accessed(now);
@@ -350,9 +380,9 @@ where
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         trace!("File::write");
         let cluster_size = self.fs.cluster_size();
-        let offset_in_cluster = self.offset % cluster_size;
+        let offset_in_cluster = self.context.offset % cluster_size;
         let bytes_left_in_cluster = (cluster_size - offset_in_cluster) as usize;
-        let bytes_left_until_max_file_size = (MAX_FILE_SIZE - self.offset) as usize;
+        let bytes_left_until_max_file_size = (MAX_FILE_SIZE - self.context.offset) as usize;
         let write_size = cmp::min(buf.len(), bytes_left_in_cluster);
         let write_size = cmp::min(write_size, bytes_left_until_max_file_size);
         // Exit early if we are going to write no data
@@ -362,10 +392,10 @@ where
         // Mark the volume 'dirty'
         self.fs.set_dirty_flag(true).await?;
         // Get cluster for write possibly allocating new one
-        let current_cluster = if self.offset % cluster_size == 0 {
+        let current_cluster = if self.context.offset % cluster_size == 0 {
             // next cluster
-            let next_cluster = match self.current_cluster {
-                None => self.first_cluster,
+            let next_cluster = match self.context.current_cluster {
+                None => self.context.first_cluster,
                 Some(n) => {
                     let r = self.fs.cluster_iter(n).next().await;
                     match r {
@@ -379,16 +409,19 @@ where
                 n
             } else {
                 // end of chain reached - allocate new cluster
-                let new_cluster = self.fs.alloc_cluster(self.current_cluster, self.is_dir()).await?;
+                let new_cluster = self
+                    .fs
+                    .alloc_cluster(self.context.current_cluster, self.is_dir())
+                    .await?;
                 trace!("allocated cluster {}", new_cluster);
-                if self.first_cluster.is_none() {
+                if self.context.first_cluster.is_none() {
                     self.set_first_cluster(new_cluster);
                 }
                 new_cluster
             }
         } else {
-            // self.current_cluster should be a valid cluster
-            match self.current_cluster {
+            // self.context.current_cluster should be a valid cluster
+            match self.context.current_cluster {
                 Some(n) => n,
                 None => panic!("Offset inside cluster but no cluster allocated"),
             }
@@ -404,8 +437,8 @@ where
             return Ok(0);
         }
         // some bytes were writter - update position and optionally size
-        self.offset += written_bytes as u32;
-        self.current_cluster = Some(current_cluster);
+        self.context.offset += written_bytes as u32;
+        self.context.current_cluster = Some(current_cluster);
         self.update_dir_entry_after_write();
         Ok(written_bytes)
     }
@@ -423,7 +456,7 @@ where
         trace!("File::seek");
         let size_opt = self.size();
         let new_offset_opt: Option<u32> = match pos {
-            SeekFrom::Current(x) => i64::from(self.offset)
+            SeekFrom::Current(x) => i64::from(self.context.offset)
                 .checked_add(x)
                 .and_then(|n| u32::try_from(n).ok()),
             SeekFrom::Start(x) => u32::try_from(x).ok(),
@@ -443,18 +476,23 @@ where
                 new_offset = size;
             }
         }
-        trace!("file seek {} -> {} - entry {:?}", self.offset, new_offset, self.entry);
-        if new_offset == self.offset {
+        trace!(
+            "file seek {} -> {} - entry {:?}",
+            self.context.offset,
+            new_offset,
+            self.context.entry
+        );
+        if new_offset == self.context.offset {
             // position is the same - nothing to do
-            return Ok(u64::from(self.offset));
+            return Ok(u64::from(self.context.offset));
         }
         let new_offset_in_clusters = self.fs.clusters_from_bytes(u64::from(new_offset));
-        let old_offset_in_clusters = self.fs.clusters_from_bytes(u64::from(self.offset));
+        let old_offset_in_clusters = self.fs.clusters_from_bytes(u64::from(self.context.offset));
         let new_cluster = if new_offset == 0 {
             None
         } else if new_offset_in_clusters == old_offset_in_clusters {
-            self.current_cluster
-        } else if let Some(first_cluster) = self.first_cluster {
+            self.context.current_cluster
+        } else if let Some(first_cluster) = self.context.first_cluster {
             // calculate number of clusters to skip
             // return the previous cluster if the offset points to the cluster boundary
             // Note: new_offset_in_clusters cannot be 0 here because new_offset is not 0
@@ -477,8 +515,8 @@ where
             new_offset = 0;
             None
         };
-        self.offset = new_offset;
-        self.current_cluster = new_cluster;
-        Ok(u64::from(self.offset))
+        self.context.offset = new_offset;
+        self.context.current_cluster = new_cluster;
+        Ok(u64::from(self.context.offset))
     }
 }
