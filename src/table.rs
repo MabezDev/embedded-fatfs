@@ -2,8 +2,6 @@ use core::borrow::BorrowMut;
 use core::cmp;
 use core::marker::PhantomData;
 
-use embedded_io_async::WriteAllError;
-
 use crate::error::{Error, IoError, ReadExactError};
 use crate::fs::{FatType, FsStatusFlags};
 use crate::io::{self, IoBase, Read, ReadLeExt, Seek, Write, WriteLeExt};
@@ -33,51 +31,51 @@ trait FatTrait {
     where
         S: Read + Seek + IoBase,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>;
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>;
 
     async fn get<S, E>(fat: &mut S, cluster: u32) -> Result<FatValue, Error<E>>
     where
         S: Read + Seek,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>;
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>;
 
     async fn set_raw<S, E>(fat: &mut S, cluster: u32, raw_value: u32) -> Result<(), Error<E>>
     where
         S: Read + Write + Seek,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>;
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>;
 
     async fn set<S, E>(fat: &mut S, cluster: u32, value: FatValue) -> Result<(), Error<E>>
     where
         S: Read + Write + Seek,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>;
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>;
 
     async fn find_free<S, E>(fat: &mut S, start_cluster: u32, end_cluster: u32) -> Result<u32, Error<E>>
     where
         S: Read + Seek,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>;
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>;
 
     async fn count_free<S, E>(fat: &mut S, end_cluster: u32) -> Result<u32, Error<E>>
     where
         S: Read + Seek,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>;
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>;
 }
 
 async fn read_fat<S, E>(fat: &mut S, fat_type: FatType, cluster: u32) -> Result<FatValue, Error<E>>
 where
     S: Read + Seek,
     E: IoError,
-    Error<E>: From<S::Error>,
-    S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+    Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+    S::Error: From<ReadExactError<S::Error>>,
 {
     match fat_type {
         FatType::Fat12 => Fat12::get(fat, cluster).await,
@@ -90,8 +88,8 @@ async fn write_fat<S, E>(fat: &mut S, fat_type: FatType, cluster: u32, value: Fa
 where
     S: Read + Write + Seek,
     E: IoError,
-    Error<E>: From<S::Error>,
-    S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+    Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+    S::Error: From<ReadExactError<S::Error>>,
 {
     trace!("write FAT - cluster {} value {:?}", cluster, value);
     match fat_type {
@@ -105,8 +103,8 @@ async fn get_next_cluster<S, E>(fat: &mut S, fat_type: FatType, cluster: u32) ->
 where
     S: Read + Seek,
     E: IoError,
-    Error<E>: From<S::Error>,
-    S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+    Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+    S::Error: From<ReadExactError<S::Error>>,
 {
     let val = read_fat(fat, fat_type, cluster).await?;
     match val {
@@ -124,8 +122,8 @@ async fn find_free_cluster<S, E>(
 where
     S: Read + Seek,
     E: IoError,
-    Error<E>: From<S::Error>,
-    S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+    Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+    S::Error: From<ReadExactError<S::Error>>,
 {
     match fat_type {
         FatType::Fat12 => Fat12::find_free(fat, start_cluster, end_cluster).await,
@@ -144,8 +142,8 @@ pub(crate) async fn alloc_cluster<S, E>(
 where
     S: Read + Write + Seek,
     E: IoError,
-    Error<E>: From<S::Error>,
-    S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+    Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+    S::Error: From<ReadExactError<S::Error>>,
 {
     let end_cluster = total_clusters + RESERVED_FAT_ENTRIES;
     let start_cluster = match hint {
@@ -171,8 +169,8 @@ pub(crate) async fn read_fat_flags<S, E>(fat: &mut S, fat_type: FatType) -> Resu
 where
     S: Read + Seek,
     E: IoError,
-    Error<E>: From<S::Error>,
-    S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+    Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+    S::Error: From<ReadExactError<S::Error>>,
 {
     // check MSB (except in FAT12)
     let val = match fat_type {
@@ -201,8 +199,8 @@ pub(crate) async fn count_free_clusters<S, E>(
 where
     S: Read + Seek,
     E: IoError,
-    Error<E>: From<S::Error>,
-    S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+    Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+    S::Error: From<ReadExactError<S::Error>>,
 {
     let end_cluster = total_clusters + RESERVED_FAT_ENTRIES;
     match fat_type {
@@ -222,8 +220,8 @@ pub(crate) async fn format_fat<S, E>(
 where
     S: Read + Write + Seek,
     E: IoError,
-    Error<E>: From<S::Error>,
-    S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+    Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+    S::Error: From<ReadExactError<S::Error>>,
 {
     const BITS_PER_BYTE: u64 = 8;
     // init first two reserved entries to FAT ID
@@ -262,8 +260,8 @@ impl FatTrait for Fat12 {
     where
         S: Read + Seek,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>,
     {
         let fat_offset = cluster + (cluster / 2);
         fat.seek(io::SeekFrom::Start(u64::from(fat_offset))).await?;
@@ -278,8 +276,8 @@ impl FatTrait for Fat12 {
     where
         S: Read + Seek,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>,
     {
         let val = Self::get_raw(fat, cluster).await?;
         Ok(match val {
@@ -294,8 +292,8 @@ impl FatTrait for Fat12 {
     where
         S: Read + Write + Seek,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>,
     {
         let raw_val = match value {
             FatValue::Free => 0,
@@ -310,8 +308,8 @@ impl FatTrait for Fat12 {
     where
         S: Read + Write + Seek + IoBase,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>,
     {
         let fat_offset = cluster + (cluster / 2);
         fat.seek(io::SeekFrom::Start(u64::from(fat_offset))).await?;
@@ -329,8 +327,8 @@ impl FatTrait for Fat12 {
     where
         S: Read + Seek,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>,
     {
         let mut cluster = start_cluster;
         let fat_offset = cluster + (cluster / 2);
@@ -361,8 +359,8 @@ impl FatTrait for Fat12 {
     where
         S: Read + Seek,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>,
     {
         let mut count = 0;
         let mut cluster = RESERVED_FAT_ENTRIES;
@@ -396,8 +394,8 @@ impl FatTrait for Fat16 {
     where
         S: Read + Seek,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>,
     {
         fat.seek(io::SeekFrom::Start(u64::from(cluster * 2))).await?;
         Ok(u32::from(fat.read_u16_le().await?))
@@ -407,8 +405,8 @@ impl FatTrait for Fat16 {
     where
         S: Read + Seek,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>,
     {
         let val = Self::get_raw(fat, cluster).await?;
         Ok(match val {
@@ -423,8 +421,8 @@ impl FatTrait for Fat16 {
     where
         S: Read + Write + Seek,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>,
     {
         let raw_value = match value {
             FatValue::Free => 0,
@@ -439,8 +437,8 @@ impl FatTrait for Fat16 {
     where
         S: Read + Seek,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>,
     {
         let mut cluster = start_cluster;
         fat.seek(io::SeekFrom::Start(u64::from(cluster * 2))).await?;
@@ -458,8 +456,8 @@ impl FatTrait for Fat16 {
     where
         S: Read + Seek,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>,
     {
         let mut count = 0;
         let mut cluster = RESERVED_FAT_ENTRIES;
@@ -478,8 +476,8 @@ impl FatTrait for Fat16 {
     where
         S: Read + Write + Seek,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>,
     {
         fat.seek(io::SeekFrom::Start(u64::from(cluster * 2))).await?;
         fat.write_u16_le(raw_value as u16).await?;
@@ -492,8 +490,8 @@ impl FatTrait for Fat32 {
     where
         S: Read + Seek,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>,
     {
         fat.seek(io::SeekFrom::Start(u64::from(cluster * 4))).await?;
         Ok(fat.read_u32_le().await?)
@@ -503,8 +501,8 @@ impl FatTrait for Fat32 {
     where
         S: Read + Seek,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>,
     {
         let val = Self::get_raw(fat, cluster).await? & 0x0FFF_FFFF;
         Ok(match val {
@@ -540,8 +538,8 @@ impl FatTrait for Fat32 {
     where
         S: Read + Write + Seek,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>,
     {
         let old_reserved_bits = Self::get_raw(fat, cluster).await? & 0xF000_0000;
 
@@ -573,8 +571,8 @@ impl FatTrait for Fat32 {
     where
         S: Read + Seek,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>,
     {
         let mut cluster = start_cluster;
         fat.seek(io::SeekFrom::Start(u64::from(cluster * 4))).await?;
@@ -592,8 +590,8 @@ impl FatTrait for Fat32 {
     where
         S: Read + Seek,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>,
     {
         let mut count = 0;
         let mut cluster = RESERVED_FAT_ENTRIES;
@@ -612,8 +610,8 @@ impl FatTrait for Fat32 {
     where
         S: Read + Write + Seek,
         E: IoError,
-        Error<E>: From<S::Error>,
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+        Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>,
     {
         fat.seek(io::SeekFrom::Start(u64::from(cluster * 4))).await?;
         fat.write_u32_le(raw_value).await?;
@@ -636,8 +634,8 @@ where
     B: BorrowMut<S>,
     E: IoError,
     S: Read + Write + Seek,
-    Error<E>: From<S::Error>,
-    S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+    Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+    S::Error: From<ReadExactError<S::Error>>,
 {
     pub(crate) fn new(fat: B, fat_type: FatType, cluster: u32) -> Self {
         Self {
@@ -679,8 +677,8 @@ where
     B: BorrowMut<S>,
     E: IoError,
     S: Read + Write + Seek,
-    Error<E>: From<S::Error>,
-    S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+    Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
+    S::Error: From<ReadExactError<S::Error>>,
 {
     type Item = Result<u32, Error<E>>;
 
@@ -710,7 +708,7 @@ mod tests {
 
     async fn test_fat<S: Read + Write + Seek + IoBase>(fat_type: FatType, mut cur: S)
     where
-        S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
+        S::Error: From<ReadExactError<S::Error>>,
     {
         // based on cluster maps from Wikipedia:
         // https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system#Cluster_map

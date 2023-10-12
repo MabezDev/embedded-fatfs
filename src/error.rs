@@ -1,5 +1,5 @@
 use core::fmt::Debug;
-pub(crate) use embedded_io_async::{Error as IoError, ErrorKind, ReadExactError, WriteAllError};
+pub(crate) use embedded_io_async::{Error as IoError, ErrorKind, ReadExactError};
 
 /// Error enum with all errors that can be returned by functions from this crate
 ///
@@ -58,24 +58,6 @@ impl<T: IoError> From<ReadExactError<T>> for Error<T> {
         match error {
             ReadExactError::UnexpectedEof => Self::UnexpectedEof,
             ReadExactError::Other(error) => error.into(),
-        }
-    }
-}
-
-impl<T> From<WriteAllError<Error<T>>> for Error<T> {
-    fn from(error: WriteAllError<Error<T>>) -> Self {
-        match error {
-            WriteAllError::WriteZero => Self::WriteZero,
-            WriteAllError::Other(error) => error,
-        }
-    }
-}
-
-impl<T: IoError> From<WriteAllError<T>> for Error<T> {
-    fn from(error: WriteAllError<T>) -> Self {
-        match error {
-            WriteAllError::WriteZero => Self::WriteZero,
-            WriteAllError::Other(error) => error.into(),
         }
     }
 }

@@ -11,7 +11,6 @@ use core::u32;
 use alloc::string::String;
 #[cfg(feature = "std")]
 use embedded_io_adapters::tokio_1::FromTokio;
-use embedded_io_async::WriteAllError;
 
 use crate::boot_sector::{format_boot_sector, BiosParameterBlock, BootSector};
 use crate::dir::{Dir, DirRawStream};
@@ -191,11 +190,7 @@ impl FsInfoSector {
         })
     }
 
-    async fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), Error<W::Error>>
-    where
-        Error<W::Error>: From<ReadExactError<W::Error>> + From<WriteAllError<W::Error>>,
-        W::Error: From<WriteAllError<W::Error>> + From<ReadExactError<W::Error>>,
-    {
+    async fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), Error<W::Error>> {
         wrt.write_u32_le(Self::LEAD_SIG).await?;
         let reserved = [0_u8; 480];
         wrt.write_all(&reserved).await?;
@@ -330,10 +325,7 @@ impl FileSystemStats {
 /// A FAT filesystem object.
 ///
 /// `FileSystem` struct is representing a state of a mounted FAT volume.
-pub struct FileSystem<IO: Read + Write + Seek, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+pub struct FileSystem<IO: Read + Write + Seek, TP, OCC> {
     pub(crate) disk: RefCell<IO>,
     pub(crate) options: FsOptions<TP, OCC>,
     fat_type: FatType,
@@ -348,17 +340,11 @@ where
 /// The underlying storage device
 ///
 /// Implement this on the underlying storage device, for example, this could be a file or an in-memory buffer.
-pub trait IntoStorage<T: Read + Write + Seek>
-where
-    T::Error: From<ReadExactError<T::Error>> + From<WriteAllError<T::Error>>,
-{
+pub trait IntoStorage<T: Read + Write + Seek> {
     fn into_storage(self) -> T;
 }
 
-impl<T: ReadWriteSeek> IntoStorage<T> for T
-where
-    T::Error: From<ReadExactError<T::Error>> + From<WriteAllError<T::Error>>,
-{
+impl<T: ReadWriteSeek> IntoStorage<T> for T {
     fn into_storage(self) -> Self {
         self
     }
@@ -371,10 +357,7 @@ impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + tokio::io::AsyncSeek + Un
     }
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
     /// Creates a new filesystem object instance.
     ///
     /// Supplied `storage` parameter cannot be seeked. If there is a need to read a fragment of disk
@@ -661,10 +644,7 @@ where
     }
 }
 
-impl<IO: ReadWriteSeek, TP, OCC: OemCpConverter> FileSystem<IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP, OCC: OemCpConverter> FileSystem<IO, TP, OCC> {
     /// Returns a volume label from BPB in the Boot Sector as `String`.
     ///
     /// Non-ASCII characters are replaced by the replacement character (U+FFFD).
@@ -680,10 +660,7 @@ where
     }
 }
 
-impl<IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> FileSystem<IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> FileSystem<IO, TP, OCC> {
     /// Returns a volume label from root directory as `String`.
     ///
     /// It finds file with `VOLUME_ID` attribute and returns its short name.
@@ -726,10 +703,7 @@ where
 }
 
 /// `Drop` implementation tries to unmount the filesystem when dropping.
-impl<IO: Read + Write + Seek, TP, OCC> Drop for FileSystem<IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: Read + Write + Seek, TP, OCC> Drop for FileSystem<IO, TP, OCC> {
     fn drop(&mut self) {
         if self.current_status_flags.get().dirty {
             warn!("Dropping FileSytem without unmount");
@@ -737,33 +711,21 @@ where
     }
 }
 
-pub(crate) struct FsIoAdapter<'a, IO: ReadWriteSeek, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+pub(crate) struct FsIoAdapter<'a, IO: ReadWriteSeek, TP, OCC> {
     fs: &'a FileSystem<IO, TP, OCC>,
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> IoBase for FsIoAdapter<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP, OCC> IoBase for FsIoAdapter<'_, IO, TP, OCC> {
     type Error = IO::Error;
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> Read for FsIoAdapter<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP, OCC> Read for FsIoAdapter<'_, IO, TP, OCC> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         self.fs.disk.borrow_mut().read(buf).await
     }
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> Write for FsIoAdapter<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP, OCC> Write for FsIoAdapter<'_, IO, TP, OCC> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         let size = self.fs.disk.borrow_mut().write(buf).await?;
         if size > 0 {
@@ -777,20 +739,14 @@ where
     }
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> Seek for FsIoAdapter<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP, OCC> Seek for FsIoAdapter<'_, IO, TP, OCC> {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         self.fs.disk.borrow_mut().seek(pos).await
     }
 }
 
 // Note: derive cannot be used because of invalid bounds. See: https://github.com/rust-lang/rust/issues/26925
-impl<IO: ReadWriteSeek, TP, OCC> Clone for FsIoAdapter<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP, OCC> Clone for FsIoAdapter<'_, IO, TP, OCC> {
     fn clone(&self) -> Self {
         FsIoAdapter { fs: self.fs }
     }
@@ -799,10 +755,7 @@ where
 fn fat_slice<S: ReadWriteSeek, B: BorrowMut<S>>(
     io: B,
     bpb: &BiosParameterBlock,
-) -> impl ReadWriteSeek<Error = Error<S::Error>>
-where
-    S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
-{
+) -> impl ReadWriteSeek<Error = Error<S::Error>> {
     let sectors_per_fat = bpb.sectors_per_fat();
     let mirroring_enabled = bpb.mirroring_enabled();
     let (fat_first_sector, mirrors) = if mirroring_enabled {
@@ -824,10 +777,7 @@ pub(crate) struct DiskSlice<B, S = B> {
     phantom: PhantomData<S>,
 }
 
-impl<B: BorrowMut<S>, S: ReadWriteSeek> DiskSlice<B, S>
-where
-    S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
-{
+impl<B: BorrowMut<S>, S: ReadWriteSeek> DiskSlice<B, S> {
     pub(crate) fn new(begin: u64, size: u64, mirrors: u8, inner: B) -> Self {
         Self {
             begin,
@@ -983,10 +933,7 @@ impl OemCpConverter for LossyOemCpConverter {
     }
 }
 
-pub(crate) async fn write_zeros<IO: ReadWriteSeek>(disk: &mut IO, mut len: u64) -> Result<(), IO::Error>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+pub(crate) async fn write_zeros<IO: ReadWriteSeek>(disk: &mut IO, mut len: u64) -> Result<(), IO::Error> {
     const ZEROS: [u8; 512] = [0_u8; 512];
     while len > 0 {
         let write_size = cmp::min(len, ZEROS.len() as u64) as usize;
@@ -999,10 +946,7 @@ where
 async fn write_zeros_until_end_of_sector<IO: ReadWriteSeek>(
     disk: &mut IO,
     bytes_per_sector: u16,
-) -> Result<(), IO::Error>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+) -> Result<(), IO::Error> {
     let pos = disk.seek(SeekFrom::Current(0)).await?;
     let total_bytes_to_write = u64::from(bytes_per_sector) - (pos % u64::from(bytes_per_sector));
     if total_bytes_to_write != u64::from(bytes_per_sector) {
@@ -1208,10 +1152,7 @@ impl FormatVolumeOptions {
 pub async fn format_volume<S: ReadWriteSeek>(
     storage: &mut S,
     options: FormatVolumeOptions,
-) -> Result<(), Error<S::Error>>
-where
-    S::Error: From<ReadExactError<S::Error>> + From<WriteAllError<S::Error>>,
-{
+) -> Result<(), Error<S::Error>> {
     trace!("format_volume");
     debug_assert!(storage.seek(SeekFrom::Current(0)).await? == 0);
 

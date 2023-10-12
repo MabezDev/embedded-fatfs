@@ -1,8 +1,6 @@
 use core::cmp;
 use core::convert::TryFrom;
 
-use embedded_io_async::{ReadExactError, WriteAllError};
-
 use crate::dir_entry::DirEntryEditor;
 use crate::error::Error;
 use crate::fs::{FileSystem, ReadWriteSeek};
@@ -15,10 +13,7 @@ const MAX_FILE_SIZE: u32 = core::u32::MAX;
 /// A FAT filesystem file object used for reading and writing data.
 ///
 /// This struct is created by the `open_file` or `create_file` methods on `Dir`.
-pub struct File<'a, IO: ReadWriteSeek, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+pub struct File<'a, IO: ReadWriteSeek, TP, OCC> {
     context: FileContext,
     // file-system reference
     fs: &'a FileSystem<IO, TP, OCC>,
@@ -26,10 +21,10 @@ where
 
 /// A context of an existing [`File`].
 ///
-/// This is obtained by calling [`File::close`] and can be used to resume 
+/// This is obtained by calling [`File::close`] and can be used to resume
 /// operations on a [`File`] with the [`DirEntry::to_file_with_context`](crate::dir_entry::DirEntry::to_file_with_context)
-/// method. This can be useful for large files, because to `Seek` to the 
-/// end of the file would mean scanning the whole cluster chain which 
+/// method. This can be useful for large files, because to `Seek` to the
+/// end of the file would mean scanning the whole cluster chain which
 /// has `O(n)` time complexity.
 #[derive(Clone)]
 pub struct FileContext {
@@ -55,10 +50,7 @@ pub struct Extent {
     pub size: u32,
 }
 
-impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
     pub(crate) fn new(
         first_cluster: Option<u32>,
         entry: Option<DirEntryEditor>,
@@ -248,10 +240,7 @@ where
     }
 }
 
-impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> File<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> File<'_, IO, TP, OCC> {
     fn update_dir_entry_after_write(&mut self) {
         let offset = self.context.offset;
         if let Some(ref mut e) = self.context.entry {
@@ -279,10 +268,7 @@ where
     }
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> Drop for File<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP, OCC> Drop for File<'_, IO, TP, OCC> {
     fn drop(&mut self) {
         if let Some(e) = &self.context.entry {
             if e.dirty() {
@@ -297,10 +283,7 @@ where
 }
 
 // Note: derive cannot be used because of invalid bounds. See: https://github.com/rust-lang/rust/issues/26925
-impl<IO: ReadWriteSeek, TP, OCC> Clone for File<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP, OCC> Clone for File<'_, IO, TP, OCC> {
     fn clone(&self) -> Self {
         File {
             context: self.context.clone(),
@@ -309,17 +292,11 @@ where
     }
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> IoBase for File<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP, OCC> IoBase for File<'_, IO, TP, OCC> {
     type Error = Error<IO::Error>;
 }
 
-impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Read for File<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Read for File<'_, IO, TP, OCC> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         trace!("File::read");
         let cluster_size = self.fs.cluster_size();
@@ -373,10 +350,7 @@ where
     }
 }
 
-impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         trace!("File::write");
         let cluster_size = self.fs.cluster_size();
@@ -448,10 +422,7 @@ where
     }
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> Seek for File<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP, OCC> Seek for File<'_, IO, TP, OCC> {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         trace!("File::seek");
         let size_opt = self.size();
