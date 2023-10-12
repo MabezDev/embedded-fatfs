@@ -2,8 +2,6 @@ use core::cmp;
 use core::u16;
 use core::u8;
 
-use embedded_io_async::WriteAllError;
-
 use crate::dir_entry::DIR_ENTRY_SIZE;
 use crate::error::{Error, IoError, ReadExactError};
 use crate::fs::{FatType, FormatVolumeOptions, FsStatusFlags};
@@ -49,10 +47,7 @@ pub(crate) struct BiosParameterBlock {
 }
 
 impl BiosParameterBlock {
-    async fn deserialize<R: Read>(rdr: &mut R) -> Result<Self, R::Error>
-    where
-        R::Error: From<ReadExactError<R::Error>>,
-    {
+    async fn deserialize<R: Read>(rdr: &mut R) -> Result<Self, Error<R::Error>> {
         let mut bpb = Self {
             bytes_per_sector: rdr.read_u16_le().await?,
             sectors_per_cluster: rdr.read_u8().await?,
@@ -97,10 +92,7 @@ impl BiosParameterBlock {
         Ok(bpb)
     }
 
-    async fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error>
-    where
-        W::Error: From<WriteAllError<W::Error>>,
-    {
+    async fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error> {
         wrt.write_u16_le(self.bytes_per_sector).await?;
         wrt.write_u8(self.sectors_per_cluster).await?;
         wrt.write_u16_le(self.reserved_sectors).await?;
@@ -429,7 +421,7 @@ pub(crate) struct BootSector {
 }
 
 impl BootSector {
-    pub(crate) async fn deserialize<R: Read>(rdr: &mut R) -> Result<Self, R::Error>
+    pub(crate) async fn deserialize<R: Read>(rdr: &mut R) -> Result<Self, Error<R::Error>>
     where
         R::Error: From<ReadExactError<R::Error>>,
     {
@@ -447,10 +439,7 @@ impl BootSector {
         Ok(boot)
     }
 
-    pub(crate) async fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error>
-    where
-        W::Error: From<WriteAllError<W::Error>>,
-    {
+    pub(crate) async fn serialize<W: Write>(&self, wrt: &mut W) -> Result<(), W::Error> {
         wrt.write_all(&self.bootjmp).await?;
         wrt.write_all(&self.oem_name).await?;
         self.bpb.serialize(&mut *wrt).await?;

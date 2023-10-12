@@ -3,38 +3,19 @@
 use core::cmp;
 use core::fmt::Debug;
 use elain::{Align, Alignment};
-use embedded_io_async::{Read, ReadExactError, Seek, SeekFrom, Write, WriteAllError};
+use embedded_io_async::{Read, ReadExactError, Seek, SeekFrom, Write};
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug)]
 pub enum StreamSliceError<T: Debug> {
     InvalidSeek(i64),
     WriteZero,
-    UnexpectedEof,
     Other(T),
 }
 
 impl<E: Debug> From<E> for StreamSliceError<E> {
     fn from(e: E) -> Self {
         Self::Other(e)
-    }
-}
-
-impl<E: Debug> From<WriteAllError<StreamSliceError<E>>> for StreamSliceError<E> {
-    fn from(e: WriteAllError<StreamSliceError<E>>) -> Self {
-        match e {
-            WriteAllError::WriteZero => Self::WriteZero,
-            WriteAllError::Other(e) => e,
-        }
-    }
-}
-
-impl<E: Debug> From<ReadExactError<StreamSliceError<E>>> for StreamSliceError<E> {
-    fn from(e: ReadExactError<StreamSliceError<E>>) -> Self {
-        match e {
-            ReadExactError::UnexpectedEof => Self::UnexpectedEof,
-            ReadExactError::Other(e) => e,
-        }
     }
 }
 
@@ -51,9 +32,7 @@ impl<E: Debug> embedded_io_async::Error for StreamSliceError<E> {
     fn kind(&self) -> embedded_io_async::ErrorKind {
         match self {
             StreamSliceError::InvalidSeek(_) => embedded_io_async::ErrorKind::InvalidInput,
-            StreamSliceError::Other(_) | StreamSliceError::WriteZero | StreamSliceError::UnexpectedEof => {
-                embedded_io_async::ErrorKind::Other
-            }
+            StreamSliceError::Other(_) | StreamSliceError::WriteZero => embedded_io_async::ErrorKind::Other,
         }
     }
 }
@@ -99,6 +78,9 @@ impl<T: Read + Write + Seek> Write for StreamSlice<T> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, StreamSliceError<T::Error>> {
         let max_write_size = cmp::min((self.size - self.current_offset) as usize, buf.len());
         let bytes_written = self.inner.write(&buf[..max_write_size]).await?;
+        if bytes_written == 0 {
+            return Err(StreamSliceError::WriteZero);
+        }
         self.current_offset += bytes_written as u64;
         Ok(bytes_written)
     }
@@ -189,13 +171,15 @@ where
 impl<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize> Read for BlockDevice<T, SIZE, ALIGN>
 where
     Align<ALIGN>: Alignment,
-    T::Error: From<ReadExactError<T::Error>> + From<WriteAllError<T::Error>>,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, T::Error> {
         Ok(if buf.len() % SIZE == 0 && &buf[0] as *const _ as usize % ALIGN == 0 {
             // If the provided buffer has a suitable length and alignment use it directly
-            self.inner.read_exact(buf).await?;
-            buf.len()
+            match self.inner.read_exact(buf).await {
+                Ok(_) => buf.len(),
+                Err(ReadExactError::UnexpectedEof) => return Ok(0),
+                Err(ReadExactError::Other(e)) => return Err(e),
+            }
         } else {
             let offset = self.inner.seek(SeekFrom::Current(0)).await?;
             let block_start = (offset / SIZE as u64) * SIZE as u64;
@@ -210,7 +194,11 @@ where
             if block_start != self.current_block {
                 // We have seeked to a new block, read it
                 self.inner.seek(SeekFrom::Start(block_start)).await?;
-                self.inner.read_exact(&mut self.buffer[..]).await?;
+                match self.inner.read_exact(&mut self.buffer[..]).await {
+                    Ok(_) => {}
+                    Err(ReadExactError::UnexpectedEof) => return Ok(0),
+                    Err(ReadExactError::Other(e)) => return Err(e),
+                }
             }
 
             // copy as much as possible, up to the block boundary
@@ -231,7 +219,6 @@ where
 impl<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize> Write for BlockDevice<T, SIZE, ALIGN>
 where
     Align<ALIGN>: Alignment,
-    T::Error: From<ReadExactError<T::Error>> + From<WriteAllError<T::Error>>,
 {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, T::Error> {
         Ok(if buf.len() % SIZE == 0 && &buf[0] as *const _ as usize % ALIGN == 0 {
@@ -252,7 +239,11 @@ where
             if block_start != self.current_block {
                 // We have seeked to a new block, read it
                 self.inner.seek(SeekFrom::Start(block_start)).await?;
-                self.inner.read_exact(&mut self.buffer[..]).await?;
+                match self.inner.read_exact(&mut self.buffer[..]).await {
+                    Ok(_) => {}
+                    Err(ReadExactError::UnexpectedEof) => return Ok(0),
+                    Err(ReadExactError::Other(e)) => return Err(e),
+                }
             }
 
             // copy as much as possible, up to the block boundary

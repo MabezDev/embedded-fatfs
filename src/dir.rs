@@ -1,7 +1,5 @@
 #[cfg(all(not(feature = "std"), feature = "alloc", feature = "lfn"))]
 use alloc::vec::Vec;
-use embedded_io_async::ReadExactError;
-use embedded_io_async::WriteAllError;
 
 use core::char;
 use core::cmp;
@@ -25,18 +23,12 @@ use async_iterator::Iterator as AsyncIterator;
 
 const LFN_PADDING: u16 = 0xFFFF;
 
-pub(crate) enum DirRawStream<'a, IO: ReadWriteSeek, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+pub(crate) enum DirRawStream<'a, IO: ReadWriteSeek, TP, OCC> {
     File(File<'a, IO, TP, OCC>),
     Root(DiskSlice<FsIoAdapter<'a, IO, TP, OCC>, FsIoAdapter<'a, IO, TP, OCC>>),
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> DirRawStream<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP, OCC> DirRawStream<'_, IO, TP, OCC> {
     fn abs_pos(&self) -> Option<u64> {
         match self {
             DirRawStream::File(file) => file.abs_pos(),
@@ -53,10 +45,7 @@ where
 }
 
 // Note: derive cannot be used because of invalid bounds. See: https://github.com/rust-lang/rust/issues/26925
-impl<IO: ReadWriteSeek, TP, OCC> Clone for DirRawStream<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP, OCC> Clone for DirRawStream<'_, IO, TP, OCC> {
     fn clone(&self) -> Self {
         match self {
             DirRawStream::File(file) => DirRawStream::File(file.clone()),
@@ -65,17 +54,11 @@ where
     }
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> IoBase for DirRawStream<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP, OCC> IoBase for DirRawStream<'_, IO, TP, OCC> {
     type Error = Error<IO::Error>;
 }
 
-impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Read for DirRawStream<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Read for DirRawStream<'_, IO, TP, OCC> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         match self {
             DirRawStream::File(file) => file.read(buf).await,
@@ -84,10 +67,7 @@ where
     }
 }
 
-impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for DirRawStream<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for DirRawStream<'_, IO, TP, OCC> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         match self {
             DirRawStream::File(file) => file.write(buf).await,
@@ -102,10 +82,7 @@ where
     }
 }
 
-impl<IO: ReadWriteSeek, TP, OCC> Seek for DirRawStream<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP, OCC> Seek for DirRawStream<'_, IO, TP, OCC> {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         match self {
             DirRawStream::File(file) => file.seek(pos).await,
@@ -121,10 +98,7 @@ fn split_path(path: &str) -> (&str, Option<&str>) {
     })
 }
 
-enum DirEntryOrShortName<'a, IO: ReadWriteSeek, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+enum DirEntryOrShortName<'a, IO: ReadWriteSeek, TP, OCC> {
     DirEntry(DirEntry<'a, IO, TP, OCC>),
     ShortName([u8; SFN_SIZE]),
 }
@@ -133,18 +107,12 @@ where
 ///
 /// This struct is created by the `open_dir` or `create_dir` methods on `Dir`.
 /// The root directory is returned by the `root_dir` method on `FileSystem`.
-pub struct Dir<'a, IO: ReadWriteSeek, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+pub struct Dir<'a, IO: ReadWriteSeek, TP, OCC> {
     stream: DirRawStream<'a, IO, TP, OCC>,
     fs: &'a FileSystem<IO, TP, OCC>,
 }
 
-impl<'a, IO: ReadWriteSeek, TP, OCC> Dir<'a, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<'a, IO: ReadWriteSeek, TP, OCC> Dir<'a, IO, TP, OCC> {
     pub(crate) fn new(stream: DirRawStream<'a, IO, TP, OCC>, fs: &'a FileSystem<IO, TP, OCC>) -> Self {
         Dir { stream, fs }
     }
@@ -157,10 +125,7 @@ where
     }
 }
 
-impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, TP, OCC> {
     async fn find_entry(
         &self,
         name: &str,
@@ -724,10 +689,7 @@ where
 }
 
 // Note: derive cannot be used because of invalid bounds. See: https://github.com/rust-lang/rust/issues/26925
-impl<IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Clone for Dir<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Clone for Dir<'_, IO, TP, OCC> {
     fn clone(&self) -> Self {
         Self {
             stream: self.stream.clone(),
@@ -739,20 +701,14 @@ where
 /// An iterator over the directory entries.
 ///
 /// This struct is created by the `iter` method on `Dir`.
-pub struct DirIter<'a, IO: ReadWriteSeek, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+pub struct DirIter<'a, IO: ReadWriteSeek, TP, OCC> {
     stream: DirRawStream<'a, IO, TP, OCC>,
     fs: &'a FileSystem<IO, TP, OCC>,
     skip_volume: bool,
     err: bool,
 }
 
-impl<'a, IO: ReadWriteSeek, TP, OCC> DirIter<'a, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<'a, IO: ReadWriteSeek, TP, OCC> DirIter<'a, IO, TP, OCC> {
     fn new(stream: DirRawStream<'a, IO, TP, OCC>, fs: &'a FileSystem<IO, TP, OCC>, skip_volume: bool) -> Self {
         DirIter {
             stream,
@@ -763,10 +719,7 @@ where
     }
 }
 
-impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC> DirIter<'a, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC> DirIter<'a, IO, TP, OCC> {
     fn should_skip_entry(&self, raw_entry: &DirEntryData) -> bool {
         if raw_entry.is_deleted() {
             return true;
@@ -833,10 +786,7 @@ where
 }
 
 // Note: derive cannot be used because of invalid bounds. See: https://github.com/rust-lang/rust/issues/26925
-impl<IO: ReadWriteSeek, TP, OCC> Clone for DirIter<'_, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<IO: ReadWriteSeek, TP, OCC> Clone for DirIter<'_, IO, TP, OCC> {
     fn clone(&self) -> Self {
         Self {
             stream: self.stream.clone(),
@@ -847,10 +797,7 @@ where
     }
 }
 
-impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC> AsyncIterator for DirIter<'a, IO, TP, OCC>
-where
-    IO::Error: From<ReadExactError<IO::Error>> + From<WriteAllError<IO::Error>>,
-{
+impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC> AsyncIterator for DirIter<'a, IO, TP, OCC> {
     type Item = Result<DirEntry<'a, IO, TP, OCC>, Error<IO::Error>>;
 
     async fn next(&mut self) -> Option<Self::Item> {
