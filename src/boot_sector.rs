@@ -3,7 +3,7 @@ use core::u16;
 use core::u8;
 
 use crate::dir_entry::DIR_ENTRY_SIZE;
-use crate::error::{Error, IoError, ReadExactError};
+use crate::error::{Error, IoError};
 use crate::fs::{FatType, FormatVolumeOptions, FsStatusFlags};
 use crate::io::{Read, ReadLeExt, Write, WriteLeExt};
 use crate::table::RESERVED_FAT_ENTRIES;
@@ -421,10 +421,7 @@ pub(crate) struct BootSector {
 }
 
 impl BootSector {
-    pub(crate) async fn deserialize<R: Read>(rdr: &mut R) -> Result<Self, Error<R::Error>>
-    where
-        R::Error: From<ReadExactError<R::Error>>,
-    {
+    pub(crate) async fn deserialize<R: Read>(rdr: &mut R) -> Result<Self, Error<R::Error>> {
         let mut boot = Self::default();
         rdr.read_exact(&mut boot.bootjmp).await?;
         rdr.read_exact(&mut boot.oem_name).await?;
