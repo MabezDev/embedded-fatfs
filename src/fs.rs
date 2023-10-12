@@ -15,7 +15,7 @@ use embedded_io_adapters::tokio_1::FromTokio;
 use crate::boot_sector::{format_boot_sector, BiosParameterBlock, BootSector};
 use crate::dir::{Dir, DirRawStream};
 use crate::dir_entry::{DirFileEntryData, FileAttributes, SFN_PADDING, SFN_SIZE};
-use crate::error::{Error, ReadExactError};
+use crate::error::Error;
 use crate::file::File;
 use crate::io::{self, IoBase, Read, ReadLeExt, Seek, SeekFrom, Write, WriteLeExt};
 use crate::table::{
@@ -125,7 +125,7 @@ impl FsStatusFlags {
 
 /// A sum of `Read` and `Seek` traits.
 pub trait ReadSeek: Read + Seek {}
-impl<T: IoBase + Read + Seek + From<ReadExactError<Self::Error>>> ReadSeek for T {}
+impl<T: IoBase + Read + Seek> ReadSeek for T {}
 
 /// A sum of `Read`, `Write` and `Seek` traits.
 pub trait ReadWriteSeek: Read + Write + Seek {}
@@ -145,11 +145,7 @@ impl FsInfoSector {
     const STRUC_SIG: u32 = 0x6141_7272;
     const TRAIL_SIG: u32 = 0xAA55_0000;
 
-    async fn deserialize<R: Read>(rdr: &mut R) -> Result<Self, Error<R::Error>>
-    where
-        Error<<R as IoBase>::Error>: From<ReadExactError<<R as IoBase>::Error>>,
-        <R as IoBase>::Error: From<ReadExactError<<R as IoBase>::Error>>,
-    {
+    async fn deserialize<R: Read>(rdr: &mut R) -> Result<Self, Error<R::Error>> {
         let lead_sig = rdr.read_u32_le().await?;
         if lead_sig != Self::LEAD_SIG {
             error!("invalid lead_sig in FsInfo sector: {}", lead_sig);
@@ -378,10 +374,7 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
     /// # Panics
     ///
     /// Panics in non-optimized build if `storage` position returned by `seek` is not zero.
-    pub async fn new<T: IntoStorage<IO>>(storage: T, options: FsOptions<TP, OCC>) -> Result<Self, Error<IO::Error>>
-    where
-        IO::Error: From<ReadExactError<IO::Error>>,
-    {
+    pub async fn new<T: IntoStorage<IO>>(storage: T, options: FsOptions<TP, OCC>) -> Result<Self, Error<IO::Error>> {
         // Make sure given image is not seeked
         let mut disk = storage.into_storage();
         trace!("FileSystem::new");

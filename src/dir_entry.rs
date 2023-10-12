@@ -382,10 +382,7 @@ impl DirEntryData {
         }
     }
 
-    pub(crate) async fn deserialize<E: IoError, R: Read<Error = Error<E>>>(rdr: &mut R) -> Result<Self, Error<E>>
-    where
-        R::Error: From<ReadExactError<R::Error>>,
-    {
+    pub(crate) async fn deserialize<E: IoError, R: Read<Error = Error<E>>>(rdr: &mut R) -> Result<Self, Error<E>> {
         trace!("DirEntryData::deserialize");
         let mut name = [0; SFN_SIZE];
         match rdr.read_exact(&mut name).await {
