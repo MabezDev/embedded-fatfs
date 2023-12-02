@@ -59,7 +59,6 @@
     clippy::uninlined_format_args, // not supported before Rust 1.58.0
 )]
 #![feature(async_fn_in_trait)]
-#![feature(impl_trait_projections)]
 
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
 extern crate alloc;

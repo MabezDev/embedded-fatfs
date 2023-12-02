@@ -67,7 +67,16 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
         }
     }
 
-    pub(crate) fn new_from_context(context: FileContext, fs: &'a FileSystem<IO, TP, OCC>) -> Self {
+    /// Create a file from a prexisting [`FileContext`] & [`FileSystem`].
+    ///
+    /// **WARNING** This method has the power to corrupt the filesystem when misused.
+    /// Read and write access is allowed simultaneously, however two or more write accesses will corrupt the file system.
+    /// Avoid concurrent write access to ensure file system stability.
+    /// 
+    /// 
+    /// Prefer using [`DirEntry::try_to_file_with_context`](crate::dir_entry::DirEntry::try_to_file_with_context) where possible because 
+    /// it does some basic checks to avoid file corruption.
+    pub fn new_from_context(context: FileContext, fs: &'a FileSystem<IO, TP, OCC>) -> Self {
         File { context, fs }
     }
 
@@ -254,11 +263,9 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> File<'_, IO, TP, OCC> {
 
     /// Manually close the file
     ///
-    /// This method flushes before returning.
     /// A [`FileContext`] is returned, which can be used in conjunction with the
     /// `to_file_with_context` API.
-    pub async fn close(mut self) -> Result<FileContext, Error<IO::Error>> {
-        self.flush().await?;
+    pub async fn close(self) -> Result<FileContext, Error<IO::Error>> {
         Ok(FileContext {
             first_cluster: self.context.first_cluster,
             current_cluster: self.context.current_cluster,
