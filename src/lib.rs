@@ -58,6 +58,7 @@
     clippy::bool_to_int_with_if, // less readable
     clippy::uninlined_format_args, // not supported before Rust 1.58.0
 )]
+#![allow(async_fn_in_trait)]
 
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
 extern crate alloc;
