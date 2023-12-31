@@ -3,7 +3,7 @@
 use core::cmp;
 use core::fmt::Debug;
 use elain::{Align, Alignment};
-use embedded_io_async::{Read, ReadExactError, Seek, SeekFrom, Write};
+use embedded_io_async::{Read, Seek, SeekFrom, Write};
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug)]
@@ -116,7 +116,18 @@ impl<T: Read + Write + Seek> Seek for StreamSlice<T> {
 /// The underlying device must implemented the [`Read::read`], [`Write::write`] and [`Seek::seek`] traits.
 ///
 /// This trait can be implemented multiple times to support various different block sizes.
-pub trait Device<const SIZE: usize>: Read + Write + Seek {}
+pub trait Device<const SIZE: usize> {
+
+    type Error: core::fmt::Debug + embedded_io_async::Error; // TODO remove the embedded_io_async::Error bound, it's there for convience right now
+
+    /// Read one or more blocks at the given block address.
+    async fn read(&mut self, block_address: u64, data: &mut [[u8; SIZE]]) -> Result<(), Self::Error>;
+
+    /// Write one or more blocks at the given block address.
+    async fn write(&mut self, block_address: u64, data: &[[u8; SIZE]]) -> Result<(), Self::Error>;
+
+    async fn size(&mut self) -> Result<u64, Self::Error>;
+}
 
 /// A Stream wrapper for accessing a stream in block sized chunks.
 ///
@@ -140,6 +151,7 @@ where
     inner: T,
     buffer: AlignedBuffer<SIZE, ALIGN>,
     current_block: u64,
+    current_offset: u64,
 }
 
 impl<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize> BlockDevice<T, SIZE, ALIGN>
@@ -150,6 +162,7 @@ where
         Self {
             inner,
             current_block: u64::MAX,
+            current_offset: 0,
             buffer: AlignedBuffer::new(),
         }
     }
@@ -173,16 +186,13 @@ where
     Align<ALIGN>: Alignment,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, T::Error> {
+        let offset = self.current_offset;
+        let block_start = (offset / SIZE as u64) * SIZE as u64;
         Ok(if buf.len() % SIZE == 0 && &buf[0] as *const _ as usize % ALIGN == 0 {
-            // If the provided buffer has a suitable length and alignment use it directly
-            match self.inner.read_exact(buf).await {
-                Ok(_) => buf.len(),
-                Err(ReadExactError::UnexpectedEof) => return Ok(0),
-                Err(ReadExactError::Other(e)) => return Err(e),
-            }
+            // note: unsafe, 
+            self.inner.read(block_start, unsafe { core::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut [u8; SIZE], buf.len() / SIZE) }).await?;
+            buf.len()
         } else {
-            let offset = self.inner.seek(SeekFrom::Current(0)).await?;
-            let block_start = (offset / SIZE as u64) * SIZE as u64;
             let block_end = block_start + SIZE as u64;
             trace!(
                 "offset {}, block_start {}, block_end {}",
@@ -191,14 +201,11 @@ where
                 block_end
             );
 
-            if block_start != self.current_block {
+            if self.current_block != block_start {
                 // We have seeked to a new block, read it
-                self.inner.seek(SeekFrom::Start(block_start)).await?;
-                match self.inner.read_exact(&mut self.buffer[..]).await {
-                    Ok(_) => {}
-                    Err(ReadExactError::UnexpectedEof) => return Ok(0),
-                    Err(ReadExactError::Other(e)) => return Err(e),
-                }
+                let buf = &mut self.buffer[..];
+                self.inner.read(block_start, unsafe { core::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut [u8; SIZE], buf.len() / SIZE) }).await?;
+                self.current_block = block_start;
             }
 
             // copy as much as possible, up to the block boundary
@@ -209,7 +216,7 @@ where
             let bytes_read = end - buffer_offset;
             buf[..bytes_read].copy_from_slice(&self.buffer[buffer_offset..end]);
 
-            self.inner.seek(SeekFrom::Start(offset + bytes_read as u64)).await?;
+            self.current_offset = offset + bytes_read as u64;
 
             bytes_read
         })
@@ -221,13 +228,13 @@ where
     Align<ALIGN>: Alignment,
 {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, T::Error> {
+        let offset = self.current_offset;
+        let block_start = (offset / SIZE as u64) * SIZE as u64;
         Ok(if buf.len() % SIZE == 0 && &buf[0] as *const _ as usize % ALIGN == 0 {
             // If the provided buffer has a suitable length and alignment use it directly
-            self.inner.write_all(buf).await?;
+            self.inner.write(block_start, unsafe { core::slice::from_raw_parts(buf.as_ptr() as *const [u8; SIZE], buf.len() / SIZE) }).await?;
             buf.len()
         } else {
-            let offset = self.inner.seek(SeekFrom::Current(0)).await?;
-            let block_start = (offset / SIZE as u64) * SIZE as u64;
             let block_end = block_start + SIZE as u64;
             trace!(
                 "offset {}, block_start {}, block_end {}",
@@ -238,12 +245,9 @@ where
 
             if block_start != self.current_block {
                 // We have seeked to a new block, read it
-                self.inner.seek(SeekFrom::Start(block_start)).await?;
-                match self.inner.read_exact(&mut self.buffer[..]).await {
-                    Ok(_) => {}
-                    Err(ReadExactError::UnexpectedEof) => return Ok(0),
-                    Err(ReadExactError::Other(e)) => return Err(e),
-                }
+                let buf = &mut self.buffer[..];
+                self.inner.read(block_start, unsafe { core::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut [u8; SIZE], buf.len() / SIZE) }).await?;
+                self.current_block = block_start;
             }
 
             // copy as much as possible, up to the block boundary
@@ -255,17 +259,20 @@ where
             self.buffer[buffer_offset..buffer_offset + bytes_written].copy_from_slice(&buf[..bytes_written]);
 
             // write out the whole block with the modified data
-            self.inner.seek(SeekFrom::Start(block_start)).await?;
-            self.inner.write_all(&self.buffer[..]).await?;
+            let buf = &self.buffer[..];
+            self.inner.write(block_start, unsafe { core::slice::from_raw_parts(buf.as_ptr() as *const [u8; SIZE], buf.len() / SIZE) }).await?;
 
-            self.inner.seek(SeekFrom::Start(offset + bytes_written as u64)).await?;
+            self.current_offset = offset + bytes_written as u64;
 
             bytes_written
         })
     }
 
     async fn flush(&mut self) -> Result<(), T::Error> {
-        self.inner.flush().await
+        let offset = self.current_offset;
+        let block_start = (offset / SIZE as u64) * SIZE as u64;
+        let buf = &self.buffer[..];
+        self.inner.write(block_start, unsafe { core::slice::from_raw_parts(buf.as_ptr() as *const [u8; SIZE], buf.len() / SIZE) }).await
     }
 }
 
@@ -274,7 +281,12 @@ where
     Align<ALIGN>: Alignment,
 {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, T::Error> {
-        self.inner.seek(pos).await
+        self.current_offset = match pos {
+            SeekFrom::Start(x) => x,
+            SeekFrom::End(x) => (self.inner.size().await? as i64 - x) as u64,
+            SeekFrom::Current(x) => (self.current_offset as i64 + x) as u64,
+        };
+        Ok(self.current_offset)
     }
 }
 
@@ -331,25 +343,25 @@ mod tests {
         type Error = T::Error;
     }
 
-    impl<T: Read + Write + Seek> Read for TestBlockDevice<T> {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-            Ok(self.0.read(buf).await?)
+    impl<T: Read + Write + Seek> Device<512> for TestBlockDevice<T> {
+        type Error = T::Error;
+
+        async fn read(&mut self, block_address: u64, data: &mut [[u8; 512]]) -> Result<(), Self::Error> {
+            self.0.seek(SeekFrom::Start(block_address * 512)).await?;
+            self.0.read(unsafe { core::mem::transmute(data) }).await?;
+            Ok(())
+        }
+
+        async fn write(&mut self, block_address: u64, data: &[[u8; 512]]) -> Result<(), Self::Error> {
+            self.0.seek(SeekFrom::Start(block_address * 512)).await?;
+            self.0.write(unsafe { core::mem::transmute(data) }).await?;
+            Ok(())
+        }
+
+        async fn size(&mut self) -> Result<u64, Self::Error> {
+            Ok(u32::MAX as u64)
         }
     }
-
-    impl<T: Read + Write + Seek> Write for TestBlockDevice<T> {
-        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-            Ok(self.0.write(buf).await?)
-        }
-    }
-
-    impl<T: Read + Write + Seek> Seek for TestBlockDevice<T> {
-        async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
-            Ok(self.0.seek(pos).await?)
-        }
-    }
-
-    impl<T: Read + Write + Seek> Device<512> for TestBlockDevice<T> {}
 
     #[tokio::test]
     async fn stream_test() {
