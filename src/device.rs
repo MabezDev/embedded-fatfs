@@ -274,6 +274,7 @@ where
     Align<ALIGN>: Alignment,
 {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, T::Error> {
+        self.flush().await?; // before seeking to a new block, we must flush the old data
         self.inner.seek(pos).await
     }
 }
@@ -498,6 +499,31 @@ mod tests {
             &block.into_inner().0.into_inner().into_inner()[..512],
             &aligned_buffer[..]
         )
+    }
+
+    #[tokio::test]
+    async fn write_seek_read_write() {
+        let _ = env_logger::builder().is_test(true).try_init();
+        let buf = "A".repeat(2048).into_bytes();
+        let cur = std::io::Cursor::new(buf);
+        let mut block: BlockDevice<_, 512, 4> =
+            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
+
+        block.seek(SeekFrom::Start(524)).await.unwrap();
+        block.write_all(&"B".repeat(512).into_bytes()).await.unwrap();
+
+        block.seek(SeekFrom::Start(0)).await.unwrap();
+        let mut tmp = [0u8; 256];
+        block.read(&mut tmp[..]).await.unwrap();
+
+        assert_eq!(&tmp[..], "A".repeat(256).into_bytes().as_slice());
+
+        block.seek(SeekFrom::Start(524 + 512)).await.unwrap();
+        block.write_all(&"C".repeat(512).into_bytes()).await.unwrap();
+
+        let buf = block.into_inner().0.into_inner().into_inner();
+
+        assert_eq!(buf, ("A".repeat(524) + &"B".repeat(512) + &"C".repeat(512) + &"A".repeat(500)).into_bytes())
     }
 
     async fn read_to_string<IO: embedded_io_async::Read>(io: &mut IO) -> Result<String, IO::Error> {
