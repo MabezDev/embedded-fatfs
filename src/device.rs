@@ -129,6 +129,7 @@ pub trait Device<const SIZE: usize> {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum BlockDeviceError<T> {
     Io(T)
 }
@@ -348,7 +349,6 @@ where
     async fn flush(&mut self) -> Result<(), Self::Error> {
         // flush the internal buffer if we have modified the buffer
         if self.pointer_block_start_addr() != self.current_offset {
-            info!("Flushing buffer!");
             let block = self.pointer_block_start();
             self.inner
                 .write(block, unsafe {
