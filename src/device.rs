@@ -3,7 +3,7 @@
 use core::cmp;
 use core::fmt::Debug;
 use elain::{Align, Alignment};
-use embedded_io_async::{Read, ReadExactError, Seek, SeekFrom, Write};
+use embedded_io_async::{Read, Seek, SeekFrom, Write};
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug)]
@@ -197,22 +197,6 @@ where
         }
         Ok(())
     }
-
-    // async fn flush_cache(&mut self) -> Result<(), T::Error> {
-    //     let block_start = self.pointer_block_start();
-    //     if block_start != self.current_block {
-    //         trace!("Seeked to new block!");
-    //         // We have seeked to a new block, read it
-    //         let buf = &mut self.buffer[..];
-    //         // Note unsafe: the internal buffer already has the correct size and alignment
-    //         self.inner
-    //             .read(block_start, unsafe {
-    //                 core::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut [u8; SIZE], buf.len() / SIZE)
-    //             })
-    //             .await?;
-    //         self.current_block = block_start;
-    //     }
-    // }
 }
 
 impl<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize> embedded_io_async::ErrorType
@@ -228,47 +212,52 @@ where
     Align<ALIGN>: Alignment,
 {
     async fn read(&mut self, mut buf: &mut [u8]) -> Result<usize, T::Error> {
-        Ok(if buf.len() % SIZE == 0 && &buf[0] as *const _ as usize % ALIGN == 0 {
-            let block = self.pointer_block_start();
-            // Note unsafe: we check the buf has the correct SIZE and ALIGNment before casting
-            self.inner
-                .read(block, unsafe {
-                    core::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut [u8; SIZE], buf.len() / SIZE)
-                })
-                .await?;
-            buf.len()
-        } else {
-            let mut total = 0;
-            loop {
-                let block_start = self.pointer_block_start_addr();
-                let block_end = block_start + SIZE as u64;
-                trace!(
-                    "offset {}, block_start {}, block_end {}",
-                    self.current_offset,
-                    block_start,
-                    block_end
-                );
+        Ok(
+            if buf.len() % SIZE == 0
+                && &buf[0] as *const _ as usize % ALIGN == 0
+                && self.current_offset % SIZE as u64 == 0
+            {
+                let block = self.pointer_block_start();
+                // Note unsafe: we check the buf has the correct SIZE and ALIGNment before casting
+                self.inner
+                    .read(block, unsafe {
+                        core::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut [u8; SIZE], buf.len() / SIZE)
+                    })
+                    .await?;
+                buf.len()
+            } else {
+                let mut total = 0;
+                loop {
+                    let block_start = self.pointer_block_start_addr();
+                    let block_end = block_start + SIZE as u64;
+                    trace!(
+                        "offset {}, block_start {}, block_end {}",
+                        self.current_offset,
+                        block_start,
+                        block_end
+                    );
 
-                self.check_cache().await?;
+                    self.check_cache().await?;
 
-                // copy as much as possible, up to the block boundary
-                let buffer_offset = (self.current_offset - block_start) as usize;
-                let bytes_to_read = buf.len();
-                
-                if bytes_to_read == 0 {
-                    return Ok(total.into());
+                    // copy as much as possible, up to the block boundary
+                    let buffer_offset = (self.current_offset - block_start) as usize;
+                    let bytes_to_read = buf.len();
+
+                    if bytes_to_read == 0 {
+                        return Ok(total.into());
+                    }
+
+                    let end = core::cmp::min(buffer_offset + bytes_to_read, SIZE);
+                    trace!("buffer_offset {}, end {}", buffer_offset, end);
+                    let bytes_read = end - buffer_offset;
+                    buf[..bytes_read].copy_from_slice(&self.buffer[buffer_offset..end]);
+                    buf = &mut buf[bytes_read..]; // move the buffer along
+
+                    self.current_offset += bytes_read as u64;
+                    total += bytes_read;
                 }
-
-                let end = core::cmp::min(buffer_offset + bytes_to_read, SIZE);
-                trace!("buffer_offset {}, end {}", buffer_offset, end);
-                let bytes_read = end - buffer_offset;
-                buf[..bytes_read].copy_from_slice(&self.buffer[buffer_offset..end]);
-                buf = &mut buf[bytes_read..]; // move the buffer along
-
-                self.current_offset += bytes_read as u64;
-                total += bytes_read;
-            }
-        })
+            },
+        )
     }
 }
 
@@ -276,54 +265,79 @@ impl<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize> Write for BlockDevi
 where
     Align<ALIGN>: Alignment,
 {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, T::Error> {
-        // Ok(if buf.len() % SIZE == 0 && &buf[0] as *const _ as usize % ALIGN == 0 {
-        //     // If the provided buffer has a suitable length and alignment use it directly
-        //     // self.inner.write_all(buf).await?;
-        //     buf.len()
-        // } else {
-        //     // let offset = self.inner.seek(SeekFrom::Current(0)).await?;
-        //     let block_start = (offset / SIZE as u64) * SIZE as u64;
-        //     let block_end = block_start + SIZE as u64;
-        //     trace!(
-        //         "offset {}, block_start {}, block_end {}",
-        //         offset,
-        //         block_start,
-        //         block_end
-        //     );
+    async fn write(&mut self, mut buf: &[u8]) -> Result<usize, T::Error> {
+        Ok(
+            if buf.len() % SIZE == 0
+                && &buf[0] as *const _ as usize % ALIGN == 0
+                && self.current_offset % SIZE as u64 == 0
+            {
+                // If the provided buffer has a suitable length and alignment use it directly
+                let block = self.pointer_block_start();
+                // Note unsafe: we check the buf has the correct SIZE and ALIGNment before casting
+                self.inner
+                    .write(block, unsafe {
+                        core::slice::from_raw_parts(buf.as_ptr() as *const [u8; SIZE], buf.len() / SIZE)
+                    })
+                    .await?;
+                buf.len()
+            } else {
+                let mut total = 0;
+                loop {
+                    let block_start = self.pointer_block_start_addr();
+                    let block_end = block_start + SIZE as u64;
+                    trace!(
+                        "offset {}, block_start {}, block_end {}",
+                        self.current_offset,
+                        block_start,
+                        block_end
+                    );
 
-        //     if block_start != self.current_block {
-        //         // We have seeked to a new block, read it
-        //         self.inner.seek(SeekFrom::Start(block_start)).await?;
-        //         match self.inner.read_exact(&mut self.buffer[..]).await {
-        //             Ok(_) => {}
-        //             Err(ReadExactError::UnexpectedEof) => return Ok(0),
-        //             Err(ReadExactError::Other(e)) => return Err(e),
-        //         }
-        //     }
+                    self.check_cache().await?;
 
-        //     // copy as much as possible, up to the block boundary
-        //     let buffer_offset = (offset - block_start) as usize;
-        //     let bytes_to_write = buf.len();
-        //     let end = core::cmp::min(buffer_offset + bytes_to_write, SIZE);
-        //     trace!("buffer_offset {}, end {}", buffer_offset, end);
-        //     let bytes_written = end - buffer_offset;
-        //     self.buffer[buffer_offset..buffer_offset + bytes_written].copy_from_slice(&buf[..bytes_written]);
+                    // copy as much as possible, up to the block boundary
+                    let buffer_offset = (self.current_offset - block_start) as usize;
+                    let bytes_to_write = buf.len();
 
-        //     // write out the whole block with the modified data
-        //     // self.inner.seek(SeekFrom::Start(block_start)).await?;
-        //     // self.inner.write_all(&self.buffer[..]).await?;
+                    if bytes_to_write == 0 {
+                        return Ok(total.into());
+                    }
 
-        //     // self.inner.seek(SeekFrom::Start(offset + bytes_written as u64)).await?;
+                    let end = core::cmp::min(buffer_offset + bytes_to_write, SIZE);
+                    trace!("buffer_offset {}, end {}", buffer_offset, end);
+                    let bytes_written = end - buffer_offset;
+                    self.buffer[buffer_offset..buffer_offset + bytes_written].copy_from_slice(&buf[..bytes_written]);
+                    buf = &buf[bytes_written..]; // move the buffer along
 
-        //     bytes_written
-        // })
-        todo!()
+                    // write out the whole block with the modified data
+                    let block = self.pointer_block_start();
+                    self.inner
+                        .write(block, unsafe {
+                            core::slice::from_raw_parts(
+                                self.buffer.as_ptr() as *const [u8; SIZE],
+                                self.buffer.len() / SIZE,
+                            )
+                        })
+                        .await?;
+
+                    self.current_offset += bytes_written as u64;
+                    total += bytes_written;
+                }
+            },
+        )
     }
 
     async fn flush(&mut self) -> Result<(), T::Error> {
-        // self.inner.flush().await
-        todo!()
+        // flush the internal buffer
+        if self.pointer_block_start_addr() != self.current_offset {
+            info!("Flushing buffer!");
+            let block = self.pointer_block_start();
+            self.inner
+                .write(block, unsafe {
+                    core::slice::from_raw_parts(self.buffer.as_ptr() as *const [u8; SIZE], self.buffer.len() / SIZE)
+                })
+                .await?;
+        }
+        Ok(())
     }
 }
 
@@ -332,7 +346,7 @@ where
     Align<ALIGN>: Alignment,
 {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, T::Error> {
-        // self.flush().await?; // before seeking to a new block, we must flush the old data
+        self.flush().await?; // before seeking to a new block, we must flush the old data
         self.current_offset = match pos {
             SeekFrom::Start(x) => x,
             SeekFrom::End(x) => (self.inner.size().await? as i64 - x) as u64,
@@ -418,7 +432,7 @@ mod tests {
 
         /// Read one or more blocks at the given block address.
         async fn read(&mut self, block_address: u64, data: &mut [[u8; 512]]) -> Result<(), Self::Error> {
-            trace!("Reading block idx: {}", block_address);
+            trace!("Reading {} block(s) starting from idx: {}", data.len(), block_address);
             self.0.seek(SeekFrom::Start(block_address * 512 as u64)).await?;
             for b in data {
                 self.0.read(b).await?;
@@ -428,7 +442,12 @@ mod tests {
 
         /// Write one or more blocks at the given block address.
         async fn write(&mut self, block_address: u64, data: &[[u8; 512]]) -> Result<(), Self::Error> {
-            todo!()
+            trace!("Writing {} block(s) starting from idx: {}", data.len(), block_address);
+            self.0.seek(SeekFrom::Start(block_address * 512 as u64)).await?;
+            for b in data {
+                self.0.write(b).await?;
+            }
+            Ok(())
         }
 
         async fn size(&mut self) -> Result<u64, Self::Error> {
@@ -467,7 +486,7 @@ mod tests {
         let cur = std::io::Cursor::new(buf);
         let mut block: BlockDevice<_, 512, 4> =
             BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
-            
+
         // Test sector aligned access
         let mut buf = vec![0; 128];
         block.seek(SeekFrom::Start(0)).await.unwrap();
