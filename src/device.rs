@@ -3,7 +3,7 @@
 use core::cmp;
 use core::fmt::Debug;
 use elain::{Align, Alignment};
-use embedded_io_async::{Read, Seek, SeekFrom, Write};
+use embedded_io_async::{Read, Seek, SeekFrom, Write, ErrorKind};
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug)]
@@ -117,7 +117,7 @@ impl<T: Read + Write + Seek> Seek for StreamSlice<T> {
 ///
 /// This trait can be implemented multiple times to support various different block sizes.
 pub trait Device<const SIZE: usize> {
-    type Error: core::fmt::Debug + embedded_io_async::Error; // TODO remove the embedded_io_async::Error bound, it's there for convience right now
+    type Error: core::fmt::Debug;
 
     /// Read one or more blocks at the given block address.
     async fn read(&mut self, block_address: u64, data: &mut [[u8; SIZE]]) -> Result<(), Self::Error>;
@@ -126,6 +126,23 @@ pub trait Device<const SIZE: usize> {
     async fn write(&mut self, block_address: u64, data: &[[u8; SIZE]]) -> Result<(), Self::Error>;
 
     async fn size(&mut self) -> Result<u64, Self::Error>;
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum BlockDeviceError<T> {
+    Io(T)
+}
+
+impl<T> From<T> for BlockDeviceError<T> {
+    fn from(t: T) -> Self {
+        BlockDeviceError::Io(t)
+    }
+}
+
+impl<T: core::fmt::Debug> embedded_io_async::Error for BlockDeviceError<T> {
+    fn kind(&self) -> ErrorKind {
+        ErrorKind::Other
+    }
 }
 
 /// A Stream wrapper for accessing a stream in block sized chunks.
@@ -184,7 +201,6 @@ where
     async fn check_cache(&mut self) -> Result<(), T::Error> {
         let block_start = self.pointer_block_start();
         if block_start != self.current_block {
-            trace!("Seeked to new block!");
             // We have seeked to a new block, read it
             let buf = &mut self.buffer[..];
             // Note unsafe: the internal buffer already has the correct size and alignment
@@ -204,14 +220,14 @@ impl<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize> embedded_io_async::
 where
     Align<ALIGN>: Alignment,
 {
-    type Error = T::Error;
+    type Error = BlockDeviceError<T::Error>;
 }
 
 impl<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize> Read for BlockDevice<T, SIZE, ALIGN>
 where
     Align<ALIGN>: Alignment,
 {
-    async fn read(&mut self, mut buf: &mut [u8]) -> Result<usize, T::Error> {
+    async fn read(&mut self, mut buf: &mut [u8]) -> Result<usize, Self::Error> {
         Ok(
             if buf.len() % SIZE == 0
                 && &buf[0] as *const _ as usize % ALIGN == 0
@@ -265,7 +281,7 @@ impl<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize> Write for BlockDevi
 where
     Align<ALIGN>: Alignment,
 {
-    async fn write(&mut self, mut buf: &[u8]) -> Result<usize, T::Error> {
+    async fn write(&mut self, mut buf: &[u8]) -> Result<usize, Self::Error> {
         Ok(
             if buf.len() % SIZE == 0
                 && &buf[0] as *const _ as usize % ALIGN == 0
@@ -326,8 +342,8 @@ where
         )
     }
 
-    async fn flush(&mut self) -> Result<(), T::Error> {
-        // flush the internal buffer
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        // flush the internal buffer if we have modified the buffer
         if self.pointer_block_start_addr() != self.current_offset {
             info!("Flushing buffer!");
             let block = self.pointer_block_start();
@@ -345,8 +361,8 @@ impl<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize> Seek for BlockDevic
 where
     Align<ALIGN>: Alignment,
 {
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, T::Error> {
-        self.flush().await?; // before seeking to a new block, we must flush the old data
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+        self.flush().await?; // before seeking to a new block, we might need to flush the old data
         self.current_offset = match pos {
             SeekFrom::Start(x) => x,
             SeekFrom::End(x) => (self.inner.size().await? as i64 - x) as u64,
@@ -432,7 +448,6 @@ mod tests {
 
         /// Read one or more blocks at the given block address.
         async fn read(&mut self, block_address: u64, data: &mut [[u8; 512]]) -> Result<(), Self::Error> {
-            trace!("Reading {} block(s) starting from idx: {}", data.len(), block_address);
             self.0.seek(SeekFrom::Start(block_address * 512 as u64)).await?;
             for b in data {
                 self.0.read(b).await?;
@@ -442,7 +457,6 @@ mod tests {
 
         /// Write one or more blocks at the given block address.
         async fn write(&mut self, block_address: u64, data: &[[u8; 512]]) -> Result<(), Self::Error> {
-            trace!("Writing {} block(s) starting from idx: {}", data.len(), block_address);
             self.0.seek(SeekFrom::Start(block_address * 512 as u64)).await?;
             for b in data {
                 self.0.write(b).await?;
