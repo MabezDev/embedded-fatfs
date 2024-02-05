@@ -110,10 +110,9 @@ impl<T: Read + Write + Seek> Seek for StreamSlice<T> {
     }
 }
 
-/// A marker trait for a block device
+/// A trait for a block devices
 ///
 /// The generic parameter `SIZE` is used by [`BlockDevice`] to determine the block size of the device.
-/// The underlying device must implemented the [`Read::read`], [`Write::write`] and [`Seek::seek`] traits.
 ///
 /// This trait can be implemented multiple times to support various different block sizes.
 pub trait Device<const SIZE: usize> {
@@ -125,6 +124,7 @@ pub trait Device<const SIZE: usize> {
     /// Write one or more blocks at the given block address.
     async fn write(&mut self, block_address: u64, data: &[[u8; SIZE]]) -> Result<(), Self::Error>;
 
+    // Report the size of the device.
     async fn size(&mut self) -> Result<u64, Self::Error>;
 }
 
@@ -159,6 +159,8 @@ impl<T: core::fmt::Debug> embedded_io_async::Error for BlockDeviceError<T> {
 /// - `buf.len()` is a multiple of block size
 /// - `buf` has the same alignment as the internal buffer
 ///
+/// [`BlockDevice<T, const SIZE: usize, const ALIGN: usize`](BlockDevice) implements the [`embedded_io_async`] traits, and implicitly
+/// handles the RMW (Read, Modify, Write) cycle for you.
 #[derive(Clone)]
 pub struct BlockDevice<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize>
 where
@@ -174,6 +176,7 @@ impl<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize> BlockDevice<T, SIZE
 where
     Align<ALIGN>: Alignment,
 {
+    /// Create a new [`BlockDevice`] around a hardware block device.
     pub const fn new(inner: T) -> Self {
         Self {
             inner,
@@ -183,7 +186,7 @@ where
         }
     }
 
-    /// Returns inner object
+    /// Returns inner object.
     pub fn into_inner(self) -> T {
         self.inner
     }
