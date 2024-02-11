@@ -572,10 +572,14 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
     ///
     /// `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub async fn unmount(self) -> Result<(), Error<IO::Error>> {
-        self.unmount_internal().await
+        self.flush().await
     }
 
-    async fn unmount_internal(&self) -> Result<(), Error<IO::Error>> {
+    /// Flushes any in memory state to the filesystem
+    ///
+    /// Updates the FS Information Sector if needed and clears
+    /// the dirty flag.
+    pub async fn flush(&self) -> Result<(), Error<IO::Error>> {
         self.flush_fs_info().await?;
         self.set_dirty_flag(false).await?;
         Ok(())
