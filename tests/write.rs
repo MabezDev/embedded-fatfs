@@ -157,21 +157,21 @@ async fn test_remove(fs: embedded_fatfs::FileSystem<impl ReadWriteSeek, ChronoTi
 async fn test_remove_fat12() {
     call_with_fs(test_remove, FAT12_IMG, 3).await;
     #[cfg(feature = "device")]
-    call_with_fs(test_remove, FAT12_IMG, 3).await;
+    call_with_block_fs(test_remove, FAT12_IMG, 3).await;
 }
 
 #[tokio::test]
 async fn test_remove_fat16() {
     call_with_fs(test_remove, FAT16_IMG, 3).await;
     #[cfg(feature = "device")]
-    call_with_fs(test_remove, FAT16_IMG, 3).await;
+    call_with_block_fs(test_remove, FAT16_IMG, 3).await;
 }
 
 #[tokio::test]
 async fn test_remove_fat32() {
     call_with_fs(test_remove, FAT32_IMG, 3).await;
     #[cfg(feature = "device")]
-    call_with_fs(test_remove, FAT32_IMG, 3).await;
+    call_with_block_fs(test_remove, FAT32_IMG, 3).await;
 }
 
 async fn test_create_file(fs: embedded_fatfs::FileSystem<impl ReadWriteSeek, ChronoTimeProvider, LossyOemCpConverter>) {
@@ -244,21 +244,21 @@ async fn test_create_file(fs: embedded_fatfs::FileSystem<impl ReadWriteSeek, Chr
 async fn test_create_file_fat12() {
     call_with_fs(test_create_file, FAT12_IMG, 4).await;
     #[cfg(feature = "device")]
-    call_with_fs(test_create_file, FAT12_IMG, 4).await;
+    call_with_block_fs(test_create_file, FAT12_IMG, 4).await;
 }
 
 #[tokio::test]
 async fn test_create_file_fat16() {
     call_with_fs(test_create_file, FAT16_IMG, 4).await;
     #[cfg(feature = "device")]
-    call_with_fs(test_create_file, FAT16_IMG, 4).await;
+    call_with_block_fs(test_create_file, FAT16_IMG, 4).await;
 }
 
 #[tokio::test]
 async fn test_create_file_fat32() {
     call_with_fs(test_create_file, FAT32_IMG, 4).await;
     #[cfg(feature = "device")]
-    call_with_fs(test_create_file, FAT32_IMG, 4).await;
+    call_with_block_fs(test_create_file, FAT32_IMG, 4).await;
 }
 
 async fn test_create_dir(fs: embedded_fatfs::FileSystem<impl ReadWriteSeek, ChronoTimeProvider, LossyOemCpConverter>) {
@@ -357,21 +357,21 @@ async fn test_create_dir(fs: embedded_fatfs::FileSystem<impl ReadWriteSeek, Chro
 async fn test_create_dir_fat12() {
     call_with_fs(test_create_dir, FAT12_IMG, 5).await;
     #[cfg(feature = "device")]
-    call_with_fs(test_create_dir, FAT12_IMG, 5).await;
+    call_with_block_fs(test_create_dir, FAT12_IMG, 5).await;
 }
 
 #[tokio::test]
 async fn test_create_dir_fat16() {
     call_with_fs(test_create_dir, FAT16_IMG, 5).await;
     #[cfg(feature = "device")]
-    call_with_fs(test_create_dir, FAT16_IMG, 5).await;
+    call_with_block_fs(test_create_dir, FAT16_IMG, 5).await;
 }
 
 #[tokio::test]
 async fn test_create_dir_fat32() {
     call_with_fs(test_create_dir, FAT32_IMG, 5).await;
     #[cfg(feature = "device")]
-    call_with_fs(test_create_dir, FAT32_IMG, 5).await;
+    call_with_block_fs(test_create_dir, FAT32_IMG, 5).await;
 }
 
 async fn test_rename_file(fs: embedded_fatfs::FileSystem<impl ReadWriteSeek, ChronoTimeProvider, LossyOemCpConverter>) {
@@ -439,21 +439,21 @@ async fn test_rename_file(fs: embedded_fatfs::FileSystem<impl ReadWriteSeek, Chr
 async fn test_rename_file_fat12() {
     call_with_fs(test_rename_file, FAT12_IMG, 6).await;
     #[cfg(feature = "device")]
-    call_with_fs(test_rename_file, FAT12_IMG, 6).await;
+    call_with_block_fs(test_rename_file, FAT12_IMG, 6).await;
 }
 
 #[tokio::test]
 async fn test_rename_file_fat16() {
     call_with_fs(test_rename_file, FAT16_IMG, 6).await;
     #[cfg(feature = "device")]
-    call_with_fs(test_rename_file, FAT16_IMG, 6).await;
+    call_with_block_fs(test_rename_file, FAT16_IMG, 6).await;
 }
 
 #[tokio::test]
 async fn test_rename_file_fat32() {
     call_with_fs(test_rename_file, FAT32_IMG, 6).await;
     #[cfg(feature = "device")]
-    call_with_fs(test_rename_file, FAT32_IMG, 6).await;
+    call_with_block_fs(test_rename_file, FAT32_IMG, 6).await;
 }
 
 async fn test_dirty_flag(tmp_path: String) {
@@ -480,21 +480,15 @@ async fn test_dirty_flag(tmp_path: String) {
 #[tokio::test]
 async fn test_dirty_flag_fat12() {
     call_with_tmp_img(test_dirty_flag, FAT12_IMG, 7).await;
-    #[cfg(feature = "device")]
-    call_with_tmp_img(test_dirty_flag, FAT12_IMG, 7).await;
 }
 
 #[tokio::test]
 async fn test_dirty_flag_fat16() {
     call_with_tmp_img(test_dirty_flag, FAT16_IMG, 7).await;
-    #[cfg(feature = "device")]
-    call_with_tmp_img(test_dirty_flag, FAT16_IMG, 7).await;
 }
 
 #[tokio::test]
 async fn test_dirty_flag_fat32() {
-    call_with_tmp_img(test_dirty_flag, FAT32_IMG, 7).await;
-    #[cfg(feature = "device")]
     call_with_tmp_img(test_dirty_flag, FAT32_IMG, 7).await;
 }
 
@@ -516,21 +510,21 @@ async fn test_multiple_files_in_directory(fs: embedded_fatfs::FileSystem<impl Re
 async fn test_multiple_files_in_directory_fat12() {
     call_with_fs(&test_multiple_files_in_directory, FAT12_IMG, 8).await;
     #[cfg(feature = "device")]
-    call_with_fs(&test_multiple_files_in_directory, FAT12_IMG, 8).await;
+    call_with_block_fs(&test_multiple_files_in_directory, FAT12_IMG, 8).await;
 }
 
 #[tokio::test]
 async fn test_multiple_files_in_directory_fat16() {
     call_with_fs(&test_multiple_files_in_directory, FAT16_IMG, 8).await;
     #[cfg(feature = "device")]
-    call_with_fs(&test_multiple_files_in_directory, FAT16_IMG, 8).await;
+    call_with_block_fs(&test_multiple_files_in_directory, FAT16_IMG, 8).await;
 }
 
 #[tokio::test]
 async fn test_multiple_files_in_directory_fat32() {
     call_with_fs(&test_multiple_files_in_directory, FAT32_IMG, 8).await;
     #[cfg(feature = "device")]
-    call_with_fs(&test_multiple_files_in_directory, FAT32_IMG, 8).await;
+    call_with_block_fs(&test_multiple_files_in_directory, FAT32_IMG, 8).await;
 }
 
 async fn read_to_end<IO: embedded_io_async::Read>(io: &mut IO) -> Result<Vec<u8>, IO::Error> {
@@ -545,6 +539,158 @@ async fn read_to_end<IO: embedded_io_async::Read>(io: &mut IO) -> Result<Vec<u8>
     }
 
     Ok(buf)
+}
+
+async fn test_write_append(fs: embedded_fatfs::FileSystem<impl ReadWriteSeek, ChronoTimeProvider, LossyOemCpConverter>) {
+    let mut init_data0 = vec![0xAA; 1024 * 1023];
+    let root_dir = fs.root_dir();
+    {
+        let mut file = root_dir.create_file("a.txt").await.expect("create file");
+        file.write_all(&init_data0).await.unwrap();
+        file.flush().await.unwrap();
+    }
+    let init_data1 = vec![0xBB; 1024 * 1023];
+    {
+        let mut file = root_dir.open_file("a.txt").await.expect("open file");
+        file.seek(SeekFrom::End(0)).await.unwrap();
+        file.write_all(&init_data1).await.unwrap();
+        file.flush().await.unwrap();
+    }
+    {
+        let mut file = root_dir.open_file("a.txt").await.unwrap();
+        let data = read_to_end(&mut file).await.unwrap();
+        init_data0.extend(&init_data1);
+        assert_eq!(data, init_data0);
+    }
+}
+
+#[tokio::test]
+async fn test_write_append_fat12() {
+    call_with_fs(&test_write_append, FAT12_IMG, 9).await;
+    #[cfg(feature = "device")]
+    call_with_block_fs(&test_write_append, FAT12_IMG, 9).await;
+}
+
+#[tokio::test]
+async fn test_write_append_fat16() {
+    call_with_fs(&test_write_append, FAT16_IMG, 9).await;
+    #[cfg(feature = "device")]
+    call_with_block_fs(&test_write_append, FAT16_IMG, 9).await;
+}
+
+#[tokio::test]
+async fn test_write_append_fat32() {
+    call_with_fs(&test_write_append, FAT32_IMG, 9).await;
+    #[cfg(feature = "device")]
+    call_with_block_fs(&test_write_append, FAT32_IMG, 9).await;
+}
+
+async fn test_interleaved_file_writes(fs: embedded_fatfs::FileSystem<impl ReadWriteSeek, ChronoTimeProvider, LossyOemCpConverter>) {
+    let root_dir = fs.root_dir();
+    let mut init_data_a = vec![0xAA; 1024 * 1023];
+    {
+        let mut file = root_dir.create_file("a.txt").await.expect("create file");
+        file.write_all(&init_data_a).await.unwrap();
+        file.flush().await.unwrap();
+    }
+    let mut init_data_b = vec![0xBB; 1024 * 1023];
+    {
+        let mut file = root_dir.create_file("b.txt").await.expect("create file");
+        file.write_all(&init_data_b).await.unwrap();
+        file.flush().await.unwrap();
+    }
+    let fin_data = vec![0xCC; 1024 * 1023];
+    {
+        let mut file = root_dir.open_file("a.txt").await.expect("open file");
+        file.seek(SeekFrom::End(0)).await.unwrap();
+        file.write_all(&fin_data).await.unwrap();
+        file.flush().await.unwrap();
+    }
+    {
+        let mut file = root_dir.open_file("b.txt").await.expect("open file");
+        file.seek(SeekFrom::End(0)).await.unwrap();
+        file.write_all(&fin_data).await.unwrap();
+        file.flush().await.unwrap();
+    }
+
+    {
+        let mut a = root_dir.open_file("a.txt").await.expect("open file");
+        let a = read_to_end(&mut a).await.unwrap();
+        init_data_a.extend(&fin_data);
+        assert_eq!(a, init_data_a);
+    }
+    {
+        let mut b = root_dir.open_file("b.txt").await.expect("open file");
+        let b = read_to_end(&mut b).await.unwrap();
+        init_data_b.extend(&fin_data);
+        assert_eq!(b, init_data_b);
+    }
+}
+
+#[tokio::test]
+async fn test_interleaved_file_writes_fat12() {
+    call_with_fs(&test_interleaved_file_writes, FAT12_IMG, 10).await;
+    #[cfg(feature = "device")]
+    call_with_block_fs(&test_interleaved_file_writes, FAT12_IMG, 10).await;
+}
+
+#[tokio::test]
+async fn test_interleaved_file_writes_fat16() {
+    call_with_fs(&test_interleaved_file_writes, FAT16_IMG, 10).await;
+    #[cfg(feature = "device")]
+    call_with_block_fs(&test_interleaved_file_writes, FAT16_IMG, 10).await;
+}
+
+#[tokio::test]
+async fn test_interleaved_file_writes_fat32() {
+    call_with_fs(&test_interleaved_file_writes, FAT32_IMG, 10).await;
+    #[cfg(feature = "device")]
+    call_with_block_fs(&test_interleaved_file_writes, FAT32_IMG, 10).await;
+}
+
+async fn test_write_delete_write_read(fs: embedded_fatfs::FileSystem<impl ReadWriteSeek, ChronoTimeProvider, LossyOemCpConverter>) {
+    let root_dir = fs.root_dir();
+    {
+        let mut file = root_dir.create_file("a.txt").await.expect("create file");
+        let init_data = vec![0xAA; 1024 * 1023];
+        file.write_all(&init_data).await.unwrap();
+        file.flush().await.unwrap();
+    }
+    {
+        root_dir.remove("a.txt").await.unwrap();
+    }
+    let init_data = vec![0xBB; 1024 * 1023];
+    {
+        let mut file = root_dir.create_file("a.txt").await.expect("create file");
+        file.write_all(&init_data).await.unwrap();
+        file.flush().await.unwrap();
+    }
+    {
+        let mut file = root_dir.open_file("a.txt").await.unwrap();
+        let data = read_to_end(&mut file).await.unwrap();
+        assert_eq!(data, init_data);
+    }
+}
+
+#[tokio::test]
+async fn test_write_delete_write_read_fat12() {
+    call_with_fs(&test_write_delete_write_read, FAT12_IMG, 11).await;
+    #[cfg(feature = "device")]
+    call_with_block_fs(&test_write_delete_write_read, FAT12_IMG, 11).await;
+}
+
+#[tokio::test]
+async fn test_write_delete_write_read_fat16() {
+    call_with_fs(&test_write_delete_write_read, FAT16_IMG, 11).await;
+    #[cfg(feature = "device")]
+    call_with_block_fs(&test_write_delete_write_read, FAT16_IMG, 11).await;
+}
+
+#[tokio::test]
+async fn test_write_delete_write_read_fat32() {
+    call_with_fs(&test_write_delete_write_read, FAT32_IMG, 11).await;
+    #[cfg(feature = "device")]
+    call_with_block_fs(&test_write_delete_write_read, FAT32_IMG, 11).await;
 }
 
 #[cfg(feature = "device")]
