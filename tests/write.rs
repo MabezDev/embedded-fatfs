@@ -49,6 +49,110 @@ async fn call_with_fs<Fut: Future, F: Fn(FileSystem) -> Fut>(f: F, filename: &st
     call_with_tmp_img(&callback, filename, test_seq).await;
 }
 
+async fn test_write_delete_write_read(fs: FileSystem) {
+    let root_dir = fs.root_dir();
+    {
+        let mut file = root_dir.create_file("a.txt").await.expect("create file");
+        let init_data = vec![0xAA; 1024 * 1023];
+        file.write_all(&init_data).await.unwrap();
+        file.flush().await.unwrap();
+    }
+    {
+        root_dir.remove("a.txt").await.unwrap();
+    }
+    let init_data = vec![0xBB; 1024 * 1023];
+    {
+        let mut file = root_dir.create_file("a.txt").await.expect("create file");
+        file.write_all(&init_data).await.unwrap();
+        file.flush().await.unwrap();
+    }
+    {
+        let mut file = root_dir.open_file("a.txt").await.unwrap();
+        let data = read_to_end(&mut file).await.unwrap();
+        assert_eq!(data, init_data);
+    }
+}
+
+async fn test_write_append(fs: FileSystem) {
+    let mut init_data0 = vec![0xAA; 1024 * 1023];
+    let root_dir = fs.root_dir();
+    {
+        let mut file = root_dir.create_file("a.txt").await.expect("create file");
+        file.write_all(&init_data0).await.unwrap();
+        file.flush().await.unwrap();
+    }
+    let init_data1 = vec![0xBB; 1024 * 1023];
+    {
+        let mut file = root_dir.open_file("a.txt").await.expect("open file");
+        file.seek(SeekFrom::End(0)).await.unwrap();
+        file.write_all(&init_data1).await.unwrap();
+        file.flush().await.unwrap();
+    }
+    {
+        let mut file = root_dir.open_file("a.txt").await.unwrap();
+        let data = read_to_end(&mut file).await.unwrap();
+        init_data0.extend(&init_data1);
+        assert_eq!(data, init_data0);
+    }
+}
+
+async fn mix_files(fs: FileSystem) {
+    let root_dir = fs.root_dir();
+    let mut init_data_a = vec![0xAA; 1024 * 1023];
+    {
+        let mut file = root_dir.create_file("a.txt").await.expect("create file");
+        file.write_all(&init_data_a).await.unwrap();
+        file.flush().await.unwrap();
+    }
+    let mut init_data_b = vec![0xBB; 1024 * 1023];
+    {
+        let mut file = root_dir.create_file("b.txt").await.expect("create file");
+        file.write_all(&init_data_b).await.unwrap();
+        file.flush().await.unwrap();
+    }
+    let fin_data = vec![0xCC; 1024 * 1023];
+    {
+        let mut file = root_dir.open_file("a.txt").await.expect("open file");
+        file.seek(SeekFrom::End(0)).await.unwrap();
+        file.write_all(&fin_data).await.unwrap();
+        file.flush().await.unwrap();
+    }
+    {
+        let mut file = root_dir.open_file("b.txt").await.expect("open file");
+        file.seek(SeekFrom::End(0)).await.unwrap();
+        file.write_all(&fin_data).await.unwrap();
+        file.flush().await.unwrap();
+    }
+
+    {
+        let mut a = root_dir.open_file("a.txt").await.expect("open file");
+        let a = read_to_end(&mut a).await.unwrap();
+        init_data_a.extend(&fin_data);
+        assert_eq!(a, init_data_a);
+    }
+    {
+        let mut b = root_dir.open_file("b.txt").await.expect("open file");
+        let b = read_to_end(&mut b).await.unwrap();
+        init_data_b.extend(&fin_data);
+        assert_eq!(b, init_data_b);
+    }
+}
+
+#[tokio::test]
+async fn test_mix_files_fat32() {
+    call_with_fs(mix_files, FAT32_IMG, 1).await
+}
+
+#[tokio::test]
+async fn test_write_append_fat32() {
+    call_with_fs(test_write_append, FAT32_IMG, 1).await
+}
+
+#[tokio::test]
+async fn test_write_delete_write_read_fat32() {
+    call_with_fs(test_write_delete_write_read, FAT32_IMG, 1).await
+}
+
 async fn test_write_short_file(fs: FileSystem) {
     let root_dir = fs.root_dir();
     let mut file = root_dir.open_file("short.txt").await.expect("open file");
@@ -496,4 +600,10 @@ async fn read_to_end<IO: embedded_io_async::Read>(io: &mut IO) -> Result<Vec<u8>
     }
 
     Ok(buf)
+}
+
+
+#[cfg(feature = "device")]
+mod device {
+
 }
