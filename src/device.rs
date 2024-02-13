@@ -173,7 +173,8 @@ where
     Align<ALIGN>: Alignment,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, T::Error> {
-        Ok(if buf.len() % SIZE == 0 && &buf[0] as *const _ as usize % ALIGN == 0 {
+        let offset = self.inner.seek(SeekFrom::Current(0)).await?;
+        Ok(if buf.len() % SIZE == 0 && &buf[0] as *const _ as usize % ALIGN == 0 && offset % SIZE as u64 == 0 {
             // If the provided buffer has a suitable length and alignment use it directly
             match self.inner.read_exact(buf).await {
                 Ok(_) => buf.len(),
@@ -221,12 +222,12 @@ where
     Align<ALIGN>: Alignment,
 {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, T::Error> {
-        Ok(if buf.len() % SIZE == 0 && &buf[0] as *const _ as usize % ALIGN == 0 {
+        let offset = self.inner.seek(SeekFrom::Current(0)).await?;
+        Ok(if buf.len() % SIZE == 0 && &buf[0] as *const _ as usize % ALIGN == 0 && offset % SIZE as u64 == 0 {
             // If the provided buffer has a suitable length and alignment use it directly
             self.inner.write_all(buf).await?;
             buf.len()
         } else {
-            let offset = self.inner.seek(SeekFrom::Current(0)).await?;
             let block_start = (offset / SIZE as u64) * SIZE as u64;
             let block_end = block_start + SIZE as u64;
             trace!(
@@ -274,7 +275,6 @@ where
     Align<ALIGN>: Alignment,
 {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, T::Error> {
-        self.flush().await?; // before seeking to a new block, we must flush the old data
         self.inner.seek(pos).await
     }
 }
