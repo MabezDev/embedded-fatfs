@@ -174,46 +174,48 @@ where
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, T::Error> {
         let offset = self.inner.seek(SeekFrom::Current(0)).await?;
-        Ok(if buf.len() % SIZE == 0 && &buf[0] as *const _ as usize % ALIGN == 0 && offset % SIZE as u64 == 0 {
-            // If the provided buffer has a suitable length and alignment use it directly
-            match self.inner.read_exact(buf).await {
-                Ok(_) => buf.len(),
-                Err(ReadExactError::UnexpectedEof) => return Ok(0),
-                Err(ReadExactError::Other(e)) => return Err(e),
-            }
-        } else {
-            let offset = self.inner.seek(SeekFrom::Current(0)).await?;
-            let block_start = (offset / SIZE as u64) * SIZE as u64;
-            let block_end = block_start + SIZE as u64;
-            trace!(
-                "offset {}, block_start {}, block_end {}",
-                offset,
-                block_start,
-                block_end
-            );
-
-            if block_start != self.current_block {
-                // We have seeked to a new block, read it
-                self.inner.seek(SeekFrom::Start(block_start)).await?;
-                match self.inner.read_exact(&mut self.buffer[..]).await {
-                    Ok(_) => {}
+        Ok(
+            if buf.len() % SIZE == 0 && &buf[0] as *const _ as usize % ALIGN == 0 && offset % SIZE as u64 == 0 {
+                // If the provided buffer has a suitable length and alignment _and_ the inner read head is on a block boundary, use it directly
+                match self.inner.read_exact(buf).await {
+                    Ok(_) => buf.len(),
                     Err(ReadExactError::UnexpectedEof) => return Ok(0),
                     Err(ReadExactError::Other(e)) => return Err(e),
                 }
-            }
+            } else {
+                let offset = self.inner.seek(SeekFrom::Current(0)).await?;
+                let block_start = (offset / SIZE as u64) * SIZE as u64;
+                let block_end = block_start + SIZE as u64;
+                trace!(
+                    "offset {}, block_start {}, block_end {}",
+                    offset,
+                    block_start,
+                    block_end
+                );
 
-            // copy as much as possible, up to the block boundary
-            let buffer_offset = (offset - block_start) as usize;
-            let bytes_to_read = buf.len();
-            let end = core::cmp::min(buffer_offset + bytes_to_read, SIZE);
-            trace!("buffer_offset {}, end {}", buffer_offset, end);
-            let bytes_read = end - buffer_offset;
-            buf[..bytes_read].copy_from_slice(&self.buffer[buffer_offset..end]);
+                if block_start != self.current_block {
+                    // We have seeked to a new block, read it
+                    self.inner.seek(SeekFrom::Start(block_start)).await?;
+                    match self.inner.read_exact(&mut self.buffer[..]).await {
+                        Ok(_) => {}
+                        Err(ReadExactError::UnexpectedEof) => return Ok(0),
+                        Err(ReadExactError::Other(e)) => return Err(e),
+                    }
+                }
 
-            self.inner.seek(SeekFrom::Start(offset + bytes_read as u64)).await?;
+                // copy as much as possible, up to the block boundary
+                let buffer_offset = (offset - block_start) as usize;
+                let bytes_to_read = buf.len();
+                let end = core::cmp::min(buffer_offset + bytes_to_read, SIZE);
+                trace!("buffer_offset {}, end {}", buffer_offset, end);
+                let bytes_read = end - buffer_offset;
+                buf[..bytes_read].copy_from_slice(&self.buffer[buffer_offset..end]);
 
-            bytes_read
-        })
+                self.inner.seek(SeekFrom::Start(offset + bytes_read as u64)).await?;
+
+                bytes_read
+            },
+        )
     }
 }
 
@@ -223,46 +225,48 @@ where
 {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, T::Error> {
         let offset = self.inner.seek(SeekFrom::Current(0)).await?;
-        Ok(if buf.len() % SIZE == 0 && &buf[0] as *const _ as usize % ALIGN == 0 && offset % SIZE as u64 == 0 {
-            // If the provided buffer has a suitable length and alignment use it directly
-            self.inner.write_all(buf).await?;
-            buf.len()
-        } else {
-            let block_start = (offset / SIZE as u64) * SIZE as u64;
-            let block_end = block_start + SIZE as u64;
-            trace!(
-                "offset {}, block_start {}, block_end {}",
-                offset,
-                block_start,
-                block_end
-            );
+        Ok(
+            if buf.len() % SIZE == 0 && &buf[0] as *const _ as usize % ALIGN == 0 && offset % SIZE as u64 == 0 {
+                // If the provided buffer has a suitable length and alignment _and_ the inner write head is on a block boundary, use it directly
+                self.inner.write_all(buf).await?;
+                buf.len()
+            } else {
+                let block_start = (offset / SIZE as u64) * SIZE as u64;
+                let block_end = block_start + SIZE as u64;
+                trace!(
+                    "offset {}, block_start {}, block_end {}",
+                    offset,
+                    block_start,
+                    block_end
+                );
 
-            if block_start != self.current_block {
-                // We have seeked to a new block, read it
-                self.inner.seek(SeekFrom::Start(block_start)).await?;
-                match self.inner.read_exact(&mut self.buffer[..]).await {
-                    Ok(_) => {}
-                    Err(ReadExactError::UnexpectedEof) => return Ok(0),
-                    Err(ReadExactError::Other(e)) => return Err(e),
+                if block_start != self.current_block {
+                    // We have seeked to a new block, read it
+                    self.inner.seek(SeekFrom::Start(block_start)).await?;
+                    match self.inner.read_exact(&mut self.buffer[..]).await {
+                        Ok(_) => {}
+                        Err(ReadExactError::UnexpectedEof) => panic!("failed to read full sector"),
+                        Err(ReadExactError::Other(e)) => return Err(e),
+                    }
                 }
-            }
 
-            // copy as much as possible, up to the block boundary
-            let buffer_offset = (offset - block_start) as usize;
-            let bytes_to_write = buf.len();
-            let end = core::cmp::min(buffer_offset + bytes_to_write, SIZE);
-            trace!("buffer_offset {}, end {}", buffer_offset, end);
-            let bytes_written = end - buffer_offset;
-            self.buffer[buffer_offset..buffer_offset + bytes_written].copy_from_slice(&buf[..bytes_written]);
+                // copy as much as possible, up to the block boundary
+                let buffer_offset = (offset - block_start) as usize;
+                let bytes_to_write = buf.len();
+                let end = core::cmp::min(buffer_offset + bytes_to_write, SIZE);
+                trace!("buffer_offset {}, end {}", buffer_offset, end);
+                let bytes_written = end - buffer_offset;
+                self.buffer[buffer_offset..buffer_offset + bytes_written].copy_from_slice(&buf[..bytes_written]);
 
-            // write out the whole block with the modified data
-            self.inner.seek(SeekFrom::Start(block_start)).await?;
-            self.inner.write_all(&self.buffer[..]).await?;
+                // write out the whole block with the modified data
+                self.inner.seek(SeekFrom::Start(block_start)).await?;
+                self.inner.write_all(&self.buffer[..]).await?;
 
-            self.inner.seek(SeekFrom::Start(offset + bytes_written as u64)).await?;
+                self.inner.seek(SeekFrom::Start(offset + bytes_written as u64)).await?;
 
-            bytes_written
-        })
+                bytes_written
+            },
+        )
     }
 
     async fn flush(&mut self) -> Result<(), T::Error> {
@@ -481,6 +485,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn aligned_write_block_optimization_misaligned_block() {
+        let _ = env_logger::builder().is_test(true).try_init();
+        let buf = vec![0; 2048];
+        let cur = std::io::Cursor::new(buf);
+        let mut block: BlockDevice<_, 512, 4> =
+            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
+
+        let mut aligned_buffer: AlignedBuffer<2048, 4> = AlignedBuffer::new();
+        let data_a = "A".repeat(512).into_bytes();
+        aligned_buffer[..512].copy_from_slice(&data_a[..]);
+        // seek away from aligned block address
+        block.seek(SeekFrom::Start(3)).await.unwrap();
+        // attempt write all
+        block.write_all(&aligned_buffer[..512]).await.unwrap();
+
+        // because the addr was not block aligned, we will have used the cache
+        assert_ne!(&block.buffer[..], [0u8; 512]);
+        // the write suceeded
+        assert_eq!(&block.into_inner().0.into_inner().into_inner()[3..515], &data_a)
+    }
+
+    #[tokio::test]
     async fn aligned_read_block_optimization() {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = "A".repeat(2048).into_bytes();
@@ -498,6 +524,31 @@ mod tests {
         assert_eq!(
             &block.into_inner().0.into_inner().into_inner()[..512],
             &aligned_buffer[..]
+        )
+    }
+
+    #[tokio::test]
+    async fn aligned_read_block_optimization_misaligned() {
+        let _ = env_logger::builder().is_test(true).try_init();
+        let buf = "A".repeat(2048).into_bytes();
+        let cur = std::io::Cursor::new(buf);
+        let mut block: BlockDevice<_, 512, 4> =
+            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
+
+        let mut aligned_buffer: AlignedBuffer<512, 4> = AlignedBuffer::new();
+        // seek away from aligned block
+        block.seek(SeekFrom::Start(3)).await.unwrap();
+        // pass an aligned buffer with correct sizing
+        block.read_exact(&mut aligned_buffer[..]).await.unwrap();
+
+        // now, we must seek back and read the entire block
+        // meaning our block cache will be written to:
+        assert_ne!(&block.buffer[..], [0u8; 512]);
+
+        // the read suceeded
+        assert_eq!(
+            &block.into_inner().0.into_inner().into_inner()[3..512],
+            &aligned_buffer[3..]
         )
     }
 
@@ -523,7 +574,10 @@ mod tests {
 
         let buf = block.into_inner().0.into_inner().into_inner();
 
-        assert_eq!(buf, ("A".repeat(524) + &"B".repeat(512) + &"C".repeat(512) + &"A".repeat(500)).into_bytes())
+        assert_eq!(
+            buf,
+            ("A".repeat(524) + &"B".repeat(512) + &"C".repeat(512) + &"A".repeat(500)).into_bytes()
+        )
     }
 
     async fn read_to_string<IO: embedded_io_async::Read>(io: &mut IO) -> Result<String, IO::Error> {
