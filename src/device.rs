@@ -239,6 +239,7 @@ where
                 && &buf[0] as *const _ as usize % ALIGN == 0
                 && self.current_offset % SIZE as u64 == 0
             {
+                // If the provided buffer has a suitable length and alignment _and_ the read head is on a block boundary, use it directly
                 let block = self.pointer_block_start();
                 self.inner.read(block, slice_to_blocks_mut(buf)).await?;
                 total += buf.len();
@@ -287,7 +288,7 @@ where
                 && &buf[0] as *const _ as usize % ALIGN == 0
                 && self.current_offset % SIZE as u64 == 0
             {
-                // If the provided buffer has a suitable length and alignment use it directly
+                // If the provided buffer has a suitable length and alignment _and_ the write head is on a block boundary, use it directly
                 let block = self.pointer_block_start();
                 self.inner.write(block, slice_to_blocks(buf)).await?;
                 total += buf.len();
@@ -334,6 +335,7 @@ where
         // flush the internal buffer if we have modified the buffer
         if self.dirty {
             self.dirty = false;
+            // Note, alignment of internal buffer is guarenteed at compile time so we don't have to check it here
             self.inner
                 .write(self.current_block, slice_to_blocks(&self.buffer[..]))
                 .await?;
