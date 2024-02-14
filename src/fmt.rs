@@ -198,6 +198,7 @@ macro_rules! unwrap {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct NoneError;
 
+#[allow(dead_code)]
 pub trait Try {
     type Ok;
     type Error;
