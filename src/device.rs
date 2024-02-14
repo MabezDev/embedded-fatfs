@@ -172,6 +172,7 @@ where
     buffer: AlignedBuffer<SIZE, ALIGN>,
     current_block: u64,
     current_offset: u64,
+    dirty: bool,
 }
 
 impl<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize> BlockDevice<T, SIZE, ALIGN>
@@ -179,18 +180,14 @@ where
     Align<ALIGN>: Alignment,
 {
     /// Create a new [`BlockDevice`] around a hardware block device.
-    pub async fn new(inner: T) -> Result<Self, T::Error> {
-        let mut s = Self {
+    pub fn new(inner: T) -> Self {
+        Self {
             inner,
             current_block: u64::MAX,
             current_offset: 0,
             buffer: AlignedBuffer::new(),
-        };
-
-        // Load the initial buffer at sector 0, so that flush functions correctly
-        s.check_cache().await?;
-
-        Ok(s)
+            dirty: false,
+        }
     }
 
     /// Returns inner object.
@@ -213,7 +210,6 @@ where
         if block_start != self.current_block {
             // We have seeked to a new block, read it
             let buf = &mut self.buffer[..];
-            // Note unsafe: the internal buffer already has the correct size and alignment
             self.inner.read(block_start, slice_to_blocks_mut(buf)).await?;
             self.current_block = block_start;
         }
@@ -242,7 +238,6 @@ where
                 && self.current_offset % SIZE as u64 == 0
             {
                 let block = self.pointer_block_start();
-                // Note unsafe: we check the buf has the correct SIZE and ALIGNment before casting
                 self.inner.read(block, slice_to_blocks_mut(buf)).await?;
                 total += buf.len();
             } else {
@@ -292,10 +287,11 @@ where
             {
                 // If the provided buffer has a suitable length and alignment use it directly
                 let block = self.pointer_block_start();
-                // Note unsafe: we check the buf has the correct SIZE and ALIGNment before casting
                 self.inner.write(block, slice_to_blocks(buf)).await?;
                 total += buf.len();
             } else {
+                // If we don't write directly, we will use the cache, which will may need to flush later
+                self.dirty = true;
                 let block_start = self.pointer_block_start_addr();
                 let block_end = block_start + SIZE as u64;
                 trace!(
@@ -305,6 +301,7 @@ where
                     block_end
                 );
 
+                // reload the cache if we need to
                 self.check_cache().await?;
 
                 // copy as much as possible, up to the block boundary
@@ -318,6 +315,7 @@ where
                 buf = &buf[bytes_written..]; // move the buffer along
 
                 // write out the whole block with the modified data
+                // TODO in theory we don't _need_ to flush here, if we don't write up to the boundary, we could add more before flushing
                 self.flush().await?;
 
                 self.current_offset += bytes_written as u64;
@@ -332,20 +330,25 @@ where
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
         // flush the internal buffer if we have modified the buffer
-        self.inner
-            .write(self.current_block, slice_to_blocks(&self.buffer[..]))
-            .await?;
+        if self.dirty {
+            self.dirty = false;
+            self.inner
+                .write(self.current_block, slice_to_blocks(&self.buffer[..]))
+                .await?;
+        }
         Ok(())
     }
 }
 
 fn slice_to_blocks<const SIZE: usize>(slice: &[u8]) -> &[[u8; SIZE]] {
     assert!(slice.len() % SIZE == 0);
+    // Note unsafe: we check the buf has the correct SIZE before casting
     unsafe { core::slice::from_raw_parts(slice.as_ptr() as *const [u8; SIZE], slice.len() / SIZE) }
 }
 
 fn slice_to_blocks_mut<const SIZE: usize>(slice: &mut [u8]) -> &mut [[u8; SIZE]] {
     assert!(slice.len() % SIZE == 0);
+    // Note unsafe: we check the buf has the correct SIZE before casting
     unsafe { core::slice::from_raw_parts_mut(slice.as_mut_ptr() as *mut [u8; SIZE], slice.len() / SIZE) }
 }
 
@@ -490,9 +493,7 @@ mod tests {
         let buf = ("A".repeat(512) + "B".repeat(512).as_str()).into_bytes();
         let cur = std::io::Cursor::new(buf);
         let mut block: BlockDevice<_, 512, 4> =
-            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)))
-                .await
-                .unwrap();
+            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
 
         // Test sector aligned access
         let mut buf = vec![0; 128];
@@ -518,9 +519,7 @@ mod tests {
         let buf = ("A".repeat(64) + "B".repeat(64).as_str()).repeat(16).into_bytes();
         let cur = std::io::Cursor::new(buf);
         let mut block: BlockDevice<_, 512, 4> =
-            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)))
-                .await
-                .unwrap();
+            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
 
         // Test sector aligned access
         let mut buf = vec![0; 64];
@@ -545,9 +544,7 @@ mod tests {
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
         let mut block: BlockDevice<_, 512, 4> =
-            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)))
-                .await
-                .unwrap();
+            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
 
         // Test sector aligned access
         let data_a = "A".repeat(512).into_bytes();
@@ -562,9 +559,7 @@ mod tests {
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
         let mut block: BlockDevice<_, 512, 4> =
-            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)))
-                .await
-                .unwrap();
+            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
 
         // Test sector aligned access
         let data_a = "A".repeat(512).into_bytes();
@@ -582,9 +577,7 @@ mod tests {
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
         let mut block: BlockDevice<_, 512, 4> =
-            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)))
-                .await
-                .unwrap();
+            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
 
         let mut aligned_buffer: AlignedBuffer<2048, 4> = AlignedBuffer::new();
         let data_a = "A".repeat(512).into_bytes();
@@ -604,9 +597,7 @@ mod tests {
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
         let mut block: BlockDevice<_, 512, 4> =
-            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)))
-                .await
-                .unwrap();
+            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
 
         let mut aligned_buffer: AlignedBuffer<2048, 4> = AlignedBuffer::new();
         let data_a = "A".repeat(512).into_bytes();
@@ -628,9 +619,7 @@ mod tests {
         let buf = "A".repeat(2048).into_bytes();
         let cur = std::io::Cursor::new(buf);
         let mut block: BlockDevice<_, 512, 4> =
-            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)))
-                .await
-                .unwrap();
+            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
 
         let mut aligned_buffer: AlignedBuffer<512, 4> = AlignedBuffer::new();
         block.seek(SeekFrom::Start(0)).await.unwrap();
@@ -651,9 +640,7 @@ mod tests {
         let buf = "A".repeat(2048).into_bytes();
         let cur = std::io::Cursor::new(buf);
         let mut block: BlockDevice<_, 512, 4> =
-            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)))
-                .await
-                .unwrap();
+            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
 
         let mut aligned_buffer: AlignedBuffer<512, 4> = AlignedBuffer::new();
         // seek away from aligned block
@@ -678,9 +665,7 @@ mod tests {
         let buf = "A".repeat(2048).into_bytes();
         let cur = std::io::Cursor::new(buf);
         let mut block: BlockDevice<_, 512, 4> =
-            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)))
-                .await
-                .unwrap();
+            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
 
         block.seek(SeekFrom::Start(524)).await.unwrap();
         block.write_all(&"B".repeat(512).into_bytes()).await.unwrap();
