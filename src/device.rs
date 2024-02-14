@@ -119,10 +119,10 @@ pub trait Device<const SIZE: usize> {
     type Error: core::fmt::Debug;
 
     /// Read one or more blocks at the given block address.
-    async fn read(&mut self, block_address: u64, data: &mut [[u8; SIZE]]) -> Result<(), Self::Error>;
+    async fn read(&mut self, block_address: u32, data: &mut [[u8; SIZE]]) -> Result<(), Self::Error>;
 
     /// Write one or more blocks at the given block address.
-    async fn write(&mut self, block_address: u64, data: &[[u8; SIZE]]) -> Result<(), Self::Error>;
+    async fn write(&mut self, block_address: u32, data: &[[u8; SIZE]]) -> Result<(), Self::Error>;
 
     // Report the size of the device.
     async fn size(&mut self) -> Result<u64, Self::Error>;
@@ -170,7 +170,7 @@ where
 {
     inner: T,
     buffer: AlignedBuffer<SIZE, ALIGN>,
-    current_block: u64,
+    current_block: u32,
     current_offset: u64,
     dirty: bool,
 }
@@ -183,7 +183,7 @@ where
     pub fn new(inner: T) -> Self {
         Self {
             inner,
-            current_block: u64::MAX,
+            current_block: u32::MAX,
             current_offset: 0,
             buffer: AlignedBuffer::new(),
             dirty: false,
@@ -197,12 +197,14 @@ where
 
     #[inline]
     fn pointer_block_start_addr(&self) -> u64 {
-        (self.current_offset / SIZE as u64) * SIZE as u64
+        self.pointer_block_start() as u64 * SIZE as u64
     }
 
     #[inline]
-    fn pointer_block_start(&self) -> u64 {
-        self.pointer_block_start_addr() / SIZE as u64
+    fn pointer_block_start(&self) -> u32 {
+        (self.current_offset / SIZE as u64)
+            .try_into()
+            .expect("Block larger than 2TB")
     }
 
     async fn check_cache(&mut self) -> Result<(), T::Error> {
@@ -441,8 +443,8 @@ mod tests {
         type Error = T::Error;
 
         /// Read one or more blocks at the given block address.
-        async fn read(&mut self, block_address: u64, data: &mut [[u8; 512]]) -> Result<(), Self::Error> {
-            self.0.seek(SeekFrom::Start(block_address * 512 as u64)).await?;
+        async fn read(&mut self, block_address: u32, data: &mut [[u8; 512]]) -> Result<(), Self::Error> {
+            self.0.seek(SeekFrom::Start((block_address * 512).into())).await?;
             for b in data {
                 self.0.read(b).await?;
             }
@@ -450,8 +452,8 @@ mod tests {
         }
 
         /// Write one or more blocks at the given block address.
-        async fn write(&mut self, block_address: u64, data: &[[u8; 512]]) -> Result<(), Self::Error> {
-            self.0.seek(SeekFrom::Start(block_address * 512 as u64)).await?;
+        async fn write(&mut self, block_address: u32, data: &[[u8; 512]]) -> Result<(), Self::Error> {
+            self.0.seek(SeekFrom::Start((block_address * 512).into())).await?;
             for b in data {
                 self.0.write(b).await?;
             }
