@@ -235,14 +235,15 @@ where
         let mut total = 0;
         let target = buf.len();
         loop {
-            if buf.len() % SIZE == 0
+            let bytes_read = if buf.len() % SIZE == 0
                 && &buf[0] as *const _ as usize % ALIGN == 0
                 && self.current_offset % SIZE as u64 == 0
             {
                 // If the provided buffer has a suitable length and alignment _and_ the read head is on a block boundary, use it directly
                 let block = self.pointer_block_start();
                 self.inner.read(block, slice_to_blocks_mut(buf)).await?;
-                total += buf.len();
+
+                buf.len()
             } else {
                 let block_start = self.pointer_block_start_addr();
                 let block_end = block_start + SIZE as u64;
@@ -265,9 +266,11 @@ where
                 buf[..bytes_read].copy_from_slice(&self.buffer[buffer_offset..end]);
                 buf = &mut buf[bytes_read..]; // move the buffer along
 
-                self.current_offset += bytes_read as u64;
-                total += bytes_read;
-            }
+                bytes_read
+            };
+
+            self.current_offset += bytes_read as u64;
+            total += bytes_read;
 
             if total == target {
                 return Ok(total);
@@ -284,14 +287,15 @@ where
         let mut total = 0;
         let target = buf.len();
         loop {
-            if buf.len() % SIZE == 0
+            let bytes_written = if buf.len() % SIZE == 0
                 && &buf[0] as *const _ as usize % ALIGN == 0
                 && self.current_offset % SIZE as u64 == 0
             {
                 // If the provided buffer has a suitable length and alignment _and_ the write head is on a block boundary, use it directly
                 let block = self.pointer_block_start();
                 self.inner.write(block, slice_to_blocks(buf)).await?;
-                total += buf.len();
+
+                buf.len()
             } else {
                 // If we don't write directly, we will use the cache, which will may need to flush later
                 self.dirty = true;
@@ -321,9 +325,11 @@ where
                 // TODO in theory we don't _need_ to flush here, if we don't write up to the boundary, we could add more before flushing
                 self.flush().await?;
 
-                self.current_offset += bytes_written as u64;
-                total += bytes_written;
-            }
+                bytes_written
+            };
+
+            self.current_offset += bytes_written as u64;
+            total += bytes_written;
 
             if total == target {
                 return Ok(total);
@@ -583,14 +589,16 @@ mod tests {
         let mut block: BlockDevice<_, 512, 4> =
             BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
 
-        let mut aligned_buffer: AlignedBuffer<2048, 4> = AlignedBuffer::new();
+        let mut aligned_buffer: AlignedBuffer<512, 4> = AlignedBuffer::new();
         let data_a = "A".repeat(512).into_bytes();
-        aligned_buffer[..512].copy_from_slice(&data_a[..]);
+        aligned_buffer[..].copy_from_slice(&data_a[..]);
         block.seek(SeekFrom::Start(0)).await.unwrap();
         block.write_all(&aligned_buffer[..]).await.unwrap();
 
         // if we wrote directly, the block buffer will be empty
         assert_eq!(&block.buffer[..], [0u8; 512]);
+        // ensure that the current offset is still updated
+        assert_eq!(block.current_offset, 512);
         // the write suceeded
         assert_eq!(&block.into_inner().0.into_inner().into_inner()[..512], &data_a)
     }
@@ -631,6 +639,8 @@ mod tests {
 
         // if we read directly, the block buffer will be empty
         assert_eq!(&block.buffer[..], [0u8; 512]);
+        // ensure that the current offset is still updated
+        assert_eq!(block.current_offset, 512);
         // the write suceeded
         assert_eq!(
             &block.into_inner().0.into_inner().into_inner()[..512],
