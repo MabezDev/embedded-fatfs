@@ -270,6 +270,7 @@ impl DirFileEntryData {
         wrt.write_u16_le(self.modify_date).await?;
         wrt.write_u16_le(self.first_cluster_lo).await?;
         wrt.write_u32_le(self.size).await?;
+        wrt.flush().await?;
         Ok(())
     }
 
@@ -342,6 +343,7 @@ impl DirLfnEntryData {
         for ch in &self.name_2 {
             wrt.write_u16_le(*ch).await?;
         }
+        wrt.flush().await?;
         Ok(())
     }
 

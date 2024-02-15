@@ -196,6 +196,7 @@ impl FsInfoSector {
         let reserved2 = [0_u8; 12];
         wrt.write_all(&reserved2).await?;
         wrt.write_u32_le(Self::TRAIL_SIG).await?;
+        wrt.flush().await?;
         Ok(())
     }
 
@@ -618,6 +619,7 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
         let mut disk = self.disk.borrow_mut();
         disk.seek(io::SeekFrom::Start(offset)).await?;
         disk.write_u8(encoded).await?;
+        disk.flush().await?;
         self.current_status_flags.set(flags);
         Ok(())
     }
@@ -1239,6 +1241,7 @@ pub async fn format_volume<S: ReadWriteSeek>(
         volume_entry.serialize(storage).await?;
     }
 
+    storage.flush().await?;
     storage.seek(SeekFrom::Start(0)).await?;
     trace!("format_volume end");
     Ok(())
