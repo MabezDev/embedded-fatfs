@@ -122,6 +122,7 @@ impl BiosParameterBlock {
         wrt.write_u32_le(self.volume_id).await?;
         wrt.write_all(&self.volume_label).await?;
         wrt.write_all(&self.fs_type_label).await?;
+        wrt.flush().await?;
         Ok(())
     }
 
@@ -447,6 +448,7 @@ impl BootSector {
             wrt.write_all(&self.boot_code[0..448]).await?;
         }
         wrt.write_all(&self.boot_sig).await?;
+        wrt.flush().await?;
         Ok(())
     }
 

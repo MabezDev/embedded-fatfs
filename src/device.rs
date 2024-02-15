@@ -207,9 +207,23 @@ where
             .expect("Block larger than 2TB")
     }
 
+    async fn flush(&mut self) -> Result<(), T::Error> {
+        // flush the internal buffer if we have modified the buffer
+        if self.dirty {
+            self.dirty = false;
+            // Note, alignment of internal buffer is guarenteed at compile time so we don't have to check it here
+            self.inner
+                .write(self.current_block, slice_to_blocks(&self.buffer[..]))
+                .await?;
+        }
+        Ok(())
+    }
+
     async fn check_cache(&mut self) -> Result<(), T::Error> {
         let block_start = self.pointer_block_start();
         if block_start != self.current_block {
+            // we may have modified data in old block, flush it to disk
+            self.flush().await?;
             // We have seeked to a new block, read it
             let buf = &mut self.buffer[..];
             self.inner.read(block_start, slice_to_blocks_mut(buf)).await?;
@@ -297,8 +311,6 @@ where
 
                 buf.len()
             } else {
-                // If we don't write directly, we will use the cache, which will may need to flush later
-                self.dirty = true;
                 let block_start = self.pointer_block_start_addr();
                 let block_end = block_start + SIZE as u64;
                 trace!(
@@ -321,9 +333,15 @@ where
                 self.buffer[buffer_offset..buffer_offset + bytes_written].copy_from_slice(&buf[..bytes_written]);
                 buf = &buf[bytes_written..]; // move the buffer along
 
+                // If we haven't written directly, we will use the cache, which will may need to flush later
+                // so we mark it as dirty
+                self.dirty = true;
+
                 // write out the whole block with the modified data
-                // TODO in theory we don't _need_ to flush here, if we don't write up to the boundary, we could add more before flushing
-                self.flush().await?;
+                if block_start + end as u64 == block_end {
+                    trace!("Flushing sector cache");
+                    self.flush().await?;
+                }
 
                 bytes_written
             };
@@ -338,14 +356,7 @@ where
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        // flush the internal buffer if we have modified the buffer
-        if self.dirty {
-            self.dirty = false;
-            // Note, alignment of internal buffer is guarenteed at compile time so we don't have to check it here
-            self.inner
-                .write(self.current_block, slice_to_blocks(&self.buffer[..]))
-                .await?;
-        }
+        self.flush().await?;
         Ok(())
     }
 }
@@ -575,6 +586,7 @@ mod tests {
         let data_a = "A".repeat(512).into_bytes();
         block.seek(SeekFrom::Start(256)).await.unwrap();
         block.write_all(&data_a).await.unwrap();
+        block.flush().await.unwrap();
         let buf = block.into_inner().0.into_inner().into_inner();
         assert_eq!(&buf[..256], [0; 256]);
         assert_eq!(&buf[256..768], data_a);
@@ -618,6 +630,7 @@ mod tests {
         block.seek(SeekFrom::Start(3)).await.unwrap();
         // attempt write all
         block.write_all(&aligned_buffer[..512]).await.unwrap();
+        block.flush().await.unwrap();
 
         // because the addr was not block aligned, we will have used the cache
         assert_ne!(&block.buffer[..], [0u8; 512]);
@@ -683,6 +696,7 @@ mod tests {
 
         block.seek(SeekFrom::Start(524)).await.unwrap();
         block.write_all(&"B".repeat(512).into_bytes()).await.unwrap();
+        block.flush().await.unwrap();
 
         block.seek(SeekFrom::Start(0)).await.unwrap();
         let mut tmp = [0u8; 256];
@@ -692,6 +706,7 @@ mod tests {
 
         block.seek(SeekFrom::Start(524 + 512)).await.unwrap();
         block.write_all(&"C".repeat(512).into_bytes()).await.unwrap();
+        block.flush().await.unwrap();
 
         let buf = block.into_inner().0.into_inner().into_inner();
 
