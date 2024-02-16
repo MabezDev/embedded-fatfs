@@ -1,4 +1,4 @@
-//! Device helper structs
+//! BlockDevice helper structs
 
 use core::cmp;
 use core::fmt::Debug;
@@ -7,6 +7,7 @@ use embedded_io_async::{ErrorKind, Read, Seek, SeekFrom, Write};
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum StreamSliceError<T: Debug> {
     InvalidSeek(i64),
     WriteZero,
@@ -20,7 +21,6 @@ impl<E: Debug> From<E> for StreamSliceError<E> {
 }
 
 /// Stream wrapper for accessing limited segment of data from underlying file or device.
-#[derive(Clone)]
 pub struct StreamSlice<T: Read + Write + Seek> {
     inner: T,
     start_offset: u64,
@@ -112,10 +112,10 @@ impl<T: Read + Write + Seek> Seek for StreamSlice<T> {
 
 /// A trait for a block devices
 ///
-/// The generic parameter `SIZE` is used by [`BlockDevice`] to determine the block size of the device.
+/// The generic parameter `SIZE` is used by [`BufStream`] to determine the block size of the device.
 ///
 /// This trait can be implemented multiple times to support various different block sizes.
-pub trait Device<const SIZE: usize> {
+pub trait BlockDevice<const SIZE: usize> {
     type Error: core::fmt::Debug;
 
     /// Read one or more blocks at the given block address.
@@ -124,23 +124,24 @@ pub trait Device<const SIZE: usize> {
     /// Write one or more blocks at the given block address.
     async fn write(&mut self, block_address: u32, data: &[[u8; SIZE]]) -> Result<(), Self::Error>;
 
-    // Report the size of the device.
+    // Report the size of the block device.
     async fn size(&mut self) -> Result<u64, Self::Error>;
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum BlockDeviceError<T> {
+#[non_exhaustive]
+pub enum BufStreamError<T> {
     Io(T),
 }
 
-impl<T> From<T> for BlockDeviceError<T> {
+impl<T> From<T> for BufStreamError<T> {
     fn from(t: T) -> Self {
-        BlockDeviceError::Io(t)
+        BufStreamError::Io(t)
     }
 }
 
-impl<T: core::fmt::Debug> embedded_io_async::Error for BlockDeviceError<T> {
+impl<T: core::fmt::Debug> embedded_io_async::Error for BufStreamError<T> {
     fn kind(&self) -> ErrorKind {
         ErrorKind::Other
     }
@@ -148,7 +149,7 @@ impl<T: core::fmt::Debug> embedded_io_async::Error for BlockDeviceError<T> {
 
 /// A Stream wrapper for accessing a stream in block sized chunks.
 ///
-/// [`BlockDevice<T, const SIZE: usize, const ALIGN: usize`](BlockDevice) can be initialized with the following parameters.
+/// [`BufStream<T, const SIZE: usize, const ALIGN: usize`](BufStream) can be initialized with the following parameters.
 ///
 /// - `T`: The inner stream.
 /// - `SIZE`: The size of the block, this dictates the size of the internal buffer.
@@ -161,10 +162,9 @@ impl<T: core::fmt::Debug> embedded_io_async::Error for BlockDeviceError<T> {
 /// - `buf` has the same alignment as the internal buffer
 /// - The byte address of the inner device is aligned to a block size.
 ///
-/// [`BlockDevice<T, const SIZE: usize, const ALIGN: usize`](BlockDevice) implements the [`embedded_io_async`] traits, and implicitly
+/// [`BufStream<T, const SIZE: usize, const ALIGN: usize`](BufStream) implements the [`embedded_io_async`] traits, and implicitly
 /// handles the RMW (Read, Modify, Write) cycle for you.
-#[derive(Clone)]
-pub struct BlockDevice<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize>
+pub struct BufStream<T: BlockDevice<SIZE>, const SIZE: usize, const ALIGN: usize>
 where
     Align<ALIGN>: Alignment,
 {
@@ -175,11 +175,11 @@ where
     dirty: bool,
 }
 
-impl<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize> BlockDevice<T, SIZE, ALIGN>
+impl<T: BlockDevice<SIZE>, const SIZE: usize, const ALIGN: usize> BufStream<T, SIZE, ALIGN>
 where
     Align<ALIGN>: Alignment,
 {
-    /// Create a new [`BlockDevice`] around a hardware block device.
+    /// Create a new [`BufStream`] around a hardware block device.
     pub fn new(inner: T) -> Self {
         Self {
             inner,
@@ -233,15 +233,15 @@ where
     }
 }
 
-impl<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize> embedded_io_async::ErrorType
-    for BlockDevice<T, SIZE, ALIGN>
+impl<T: BlockDevice<SIZE>, const SIZE: usize, const ALIGN: usize> embedded_io_async::ErrorType
+    for BufStream<T, SIZE, ALIGN>
 where
     Align<ALIGN>: Alignment,
 {
-    type Error = BlockDeviceError<T::Error>;
+    type Error = BufStreamError<T::Error>;
 }
 
-impl<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize> Read for BlockDevice<T, SIZE, ALIGN>
+impl<T: BlockDevice<SIZE>, const SIZE: usize, const ALIGN: usize> Read for BufStream<T, SIZE, ALIGN>
 where
     Align<ALIGN>: Alignment,
 {
@@ -293,7 +293,7 @@ where
     }
 }
 
-impl<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize> Write for BlockDevice<T, SIZE, ALIGN>
+impl<T: BlockDevice<SIZE>, const SIZE: usize, const ALIGN: usize> Write for BufStream<T, SIZE, ALIGN>
 where
     Align<ALIGN>: Alignment,
 {
@@ -373,7 +373,7 @@ fn slice_to_blocks_mut<const SIZE: usize>(slice: &mut [u8]) -> &mut [[u8; SIZE]]
     unsafe { core::slice::from_raw_parts_mut(slice.as_mut_ptr() as *mut [u8; SIZE], slice.len() / SIZE) }
 }
 
-impl<T: Device<SIZE>, const SIZE: usize, const ALIGN: usize> Seek for BlockDevice<T, SIZE, ALIGN>
+impl<T: BlockDevice<SIZE>, const SIZE: usize, const ALIGN: usize> Seek for BufStream<T, SIZE, ALIGN>
 where
     Align<ALIGN>: Alignment,
 {
@@ -432,7 +432,7 @@ where
 mod tests {
     use embedded_io_async::ErrorType;
 
-    use super::{BlockDevice, *};
+    use super::{BufStream, *};
 
     struct TestBlockDevice<T: Read + Write + Seek>(T);
 
@@ -458,7 +458,7 @@ mod tests {
         }
     }
 
-    impl<T: Read + Write + Seek> Device<512> for TestBlockDevice<T> {
+    impl<T: Read + Write + Seek> BlockDevice<512> for TestBlockDevice<T> {
         type Error = T::Error;
 
         /// Read one or more blocks at the given block address.
@@ -513,8 +513,8 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = ("A".repeat(512) + "B".repeat(512).as_str()).into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BlockDevice<_, 512, 4> =
-            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
+        let mut block: BufStream<_, 512, 4> =
+            BufStream::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
 
         // Test sector aligned access
         let mut buf = vec![0; 128];
@@ -539,8 +539,8 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = ("A".repeat(64) + "B".repeat(64).as_str()).repeat(16).into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BlockDevice<_, 512, 4> =
-            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
+        let mut block: BufStream<_, 512, 4> =
+            BufStream::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
 
         // Test sector aligned access
         let mut buf = vec![0; 64];
@@ -564,8 +564,8 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
-        let mut block: BlockDevice<_, 512, 4> =
-            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
+        let mut block: BufStream<_, 512, 4> =
+            BufStream::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
 
         // Test sector aligned access
         let data_a = "A".repeat(512).into_bytes();
@@ -579,8 +579,8 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
-        let mut block: BlockDevice<_, 512, 4> =
-            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
+        let mut block: BufStream<_, 512, 4> =
+            BufStream::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
 
         // Test sector aligned access
         let data_a = "A".repeat(512).into_bytes();
@@ -598,8 +598,8 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
-        let mut block: BlockDevice<_, 512, 4> =
-            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
+        let mut block: BufStream<_, 512, 4> =
+            BufStream::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
 
         let mut aligned_buffer: AlignedBuffer<512, 4> = AlignedBuffer::new();
         let data_a = "A".repeat(512).into_bytes();
@@ -620,8 +620,8 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
-        let mut block: BlockDevice<_, 512, 4> =
-            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
+        let mut block: BufStream<_, 512, 4> =
+            BufStream::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
 
         let mut aligned_buffer: AlignedBuffer<2048, 4> = AlignedBuffer::new();
         let data_a = "A".repeat(512).into_bytes();
@@ -643,8 +643,8 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = "A".repeat(2048).into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BlockDevice<_, 512, 4> =
-            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
+        let mut block: BufStream<_, 512, 4> =
+            BufStream::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
 
         let mut aligned_buffer: AlignedBuffer<512, 4> = AlignedBuffer::new();
         block.seek(SeekFrom::Start(0)).await.unwrap();
@@ -666,8 +666,8 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = "A".repeat(2048).into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BlockDevice<_, 512, 4> =
-            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
+        let mut block: BufStream<_, 512, 4> =
+            BufStream::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
 
         let mut aligned_buffer: AlignedBuffer<512, 4> = AlignedBuffer::new();
         // seek away from aligned block
@@ -691,8 +691,8 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = "A".repeat(2048).into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BlockDevice<_, 512, 4> =
-            BlockDevice::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
+        let mut block: BufStream<_, 512, 4> =
+            BufStream::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
 
         block.seek(SeekFrom::Start(524)).await.unwrap();
         block.write_all(&"B".repeat(512).into_bytes()).await.unwrap();
