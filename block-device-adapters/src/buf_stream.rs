@@ -567,18 +567,4 @@ mod tests {
             ("A".repeat(524) + &"B".repeat(512) + &"C".repeat(512) + &"A".repeat(500)).into_bytes()
         )
     }
-
-    async fn read_to_string<IO: embedded_io_async::Read>(io: &mut IO) -> Result<String, IO::Error> {
-        let mut buf = Vec::new();
-        loop {
-            let mut tmp = [0; 256];
-            match io.read(&mut tmp).await {
-                Ok(0) => break,
-                Ok(n) => buf.extend(&tmp[..n]),
-                Err(e) => return Err(e),
-            }
-        }
-
-        Ok(String::from_utf8(buf).unwrap())
-    }
 }

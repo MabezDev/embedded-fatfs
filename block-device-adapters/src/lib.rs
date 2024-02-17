@@ -1,6 +1,6 @@
 //! Block device adapters
 
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 
 // MUST be the first module listed
 mod fmt;

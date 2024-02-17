@@ -14,7 +14,6 @@
 //!
 //! ```rust
 //! use tokio::fs;
-//! use async_iterator::Iterator;
 //! use embedded_io_async::Write;
 //!
 //! #[tokio::main]
