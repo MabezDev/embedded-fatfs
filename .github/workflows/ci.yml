@@ -34,6 +34,12 @@ jobs:
         with:
           command: build
 
+      - name: Run cargo build --examples
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --examples
+
       - name: Run cargo test
         uses: actions-rs/cargo@v1
         with:
