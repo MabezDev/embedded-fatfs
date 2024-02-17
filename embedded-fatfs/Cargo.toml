@@ -17,15 +17,13 @@ exclude = [
 
 [features]
 # Use Rust std library
-std = ["embedded-io-async/std", "dep:tokio", "dep:embedded-io-adapters", "async-iterator/std"]
+std = ["embedded-io-async/std", "dep:tokio", "dep:embedded-io-adapters"]
 # LFN (Long File Name) support
 lfn = []
 # Use dynamic allocation. When used without std please enable core_io/collections
 alloc = []
 # Full Unicode support. Disabling it reduces code size by avoiding Unicode-aware character case conversion
 unicode = []
-# device helpers
-device = ["elain"]
 # enable log support
 log = ["dep:log"]
 # enable defmt support
@@ -51,7 +49,5 @@ defmt = { version = "0.3", optional = true }
 
 [dev-dependencies]
 env_logger = "0.9"
-fscommon = "0.1"
 tokio = { version = "1", default-features = false, features = ["fs", "rt-multi-thread", "macros", "io-util"] }
-async-iterator = "2.1"
 anyhow = "1"

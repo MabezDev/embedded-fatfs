@@ -26,6 +26,9 @@ jobs:
           toolchain: ${{ matrix.rust_version }}
           override: true
 
+      - name: cd into embedded-fatfs
+        run: cd embedded-fatfs
+
       - name: Print Rust compiler version
         run: rustc --version
 
