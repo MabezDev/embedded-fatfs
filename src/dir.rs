@@ -19,7 +19,6 @@ use crate::file::File;
 use crate::fs::{DiskSlice, FileSystem, FsIoAdapter, OemCpConverter, ReadWriteSeek};
 use crate::io::{self, IoBase, Read, Seek, SeekFrom, Write};
 use crate::time::TimeProvider;
-use async_iterator::Iterator as AsyncIterator;
 
 const LFN_PADDING: u16 = 0xFFFF;
 
@@ -783,24 +782,8 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC> DirIter<'a, IO, TP, OCC> {
             }
         }
     }
-}
 
-// Note: derive cannot be used because of invalid bounds. See: https://github.com/rust-lang/rust/issues/26925
-impl<IO: ReadWriteSeek, TP, OCC> Clone for DirIter<'_, IO, TP, OCC> {
-    fn clone(&self) -> Self {
-        Self {
-            stream: self.stream.clone(),
-            fs: self.fs,
-            err: self.err,
-            skip_volume: self.skip_volume,
-        }
-    }
-}
-
-impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC> AsyncIterator for DirIter<'a, IO, TP, OCC> {
-    type Item = Result<DirEntry<'a, IO, TP, OCC>, Error<IO::Error>>;
-
-    async fn next(&mut self) -> Option<Self::Item> {
+    pub async fn next(&mut self) -> Option<Result<DirEntry<'a, IO, TP, OCC>, Error<IO::Error>>> {
         if self.err {
             return None;
         }
@@ -812,6 +795,27 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC> AsyncIterator for DirIter<'a,
                 self.err = true;
                 Some(Err(err))
             }
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    pub async fn collect(&mut self) -> Vec<Result<DirEntry<'a, IO, TP, OCC>, Error<IO::Error>>> {
+        let mut v = Vec::new();
+        while let Some(i) = self.next().await {
+            v.push(i);
+        }
+        v
+    }
+}
+
+// Note: derive cannot be used because of invalid bounds. See: https://github.com/rust-lang/rust/issues/26925
+impl<IO: ReadWriteSeek, TP, OCC> Clone for DirIter<'_, IO, TP, OCC> {
+    fn clone(&self) -> Self {
+        Self {
+            stream: self.stream.clone(),
+            fs: self.fs,
+            err: self.err,
+            skip_volume: self.skip_volume,
         }
     }
 }

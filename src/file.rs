@@ -6,7 +6,6 @@ use crate::error::Error;
 use crate::fs::{FileSystem, ReadWriteSeek};
 use crate::io::{IoBase, Read, Seek, SeekFrom, Write};
 use crate::time::{Date, DateTime, TimeProvider};
-use async_iterator::Iterator as AsyncIterator;
 
 const MAX_FILE_SIZE: u32 = core::u32::MAX;
 
@@ -72,9 +71,9 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
     /// **WARNING** This method has the power to corrupt the filesystem when misused.
     /// Read and write access is allowed simultaneously, however two or more write accesses will corrupt the file system.
     /// Avoid concurrent write access to ensure file system stability.
-    /// 
-    /// 
-    /// Prefer using [`DirEntry::try_to_file_with_context`](crate::dir_entry::DirEntry::try_to_file_with_context) where possible because 
+    ///
+    ///
+    /// Prefer using [`DirEntry::try_to_file_with_context`](crate::dir_entry::DirEntry::try_to_file_with_context) where possible because
     /// it does some basic checks to avoid file corruption.
     pub fn new_from_context(context: FileContext, fs: &'a FileSystem<IO, TP, OCC>) -> Self {
         File { context, fs }

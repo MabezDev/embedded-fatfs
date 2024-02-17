@@ -1,6 +1,5 @@
 use std::env;
 
-use async_iterator::Iterator as AsyncIterator;
 use chrono::{DateTime, Local};
 use embedded_fatfs::{FileSystem, FsOptions};
 

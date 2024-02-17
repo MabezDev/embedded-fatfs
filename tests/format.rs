@@ -1,6 +1,5 @@
 use std::io;
 
-use async_iterator::Iterator as AsyncIterator;
 use embedded_fatfs::{ChronoTimeProvider, LossyOemCpConverter};
 use embedded_io_async::Write;
 
@@ -24,7 +23,8 @@ async fn basic_fs_test(fs: &FileSystem) {
     }
 
     let root_dir = fs.root_dir();
-    let entries = root_dir.iter().map(|r| async { r.unwrap() }).collect::<Vec<_>>().await;
+    let entries = root_dir.iter().collect().await;
+    let entries = entries.iter().map(|r| r.as_ref().unwrap()).collect::<Vec<_>>();
     assert_eq!(entries.len(), 0);
 
     let subdir1 = root_dir.create_dir("subdir1").await.expect("create_dir subdir1");
@@ -50,16 +50,20 @@ async fn basic_fs_test(fs: &FileSystem) {
 
     let filenames = root_dir
         .iter()
-        .map(|r| async { r.unwrap().file_name() })
-        .collect::<Vec<String>>()
-        .await;
+        .collect()
+        .await
+        .iter()
+        .map(|r| r.as_ref().unwrap().file_name())
+        .collect::<Vec<String>>();
     assert_eq!(filenames, ["subdir1"]);
 
     let filenames = subdir2
         .iter()
-        .map(|r| async { r.unwrap().file_name() })
-        .collect::<Vec<String>>()
-        .await;
+        .collect()
+        .await
+        .iter()
+        .map(|r| r.as_ref().unwrap().file_name())
+        .collect::<Vec<String>>();
     assert_eq!(filenames, [".", "..", "test file name.txt"]);
 
     subdir1
@@ -69,16 +73,20 @@ async fn basic_fs_test(fs: &FileSystem) {
 
     let filenames = subdir2
         .iter()
-        .map(|r| async { r.unwrap().file_name() })
-        .collect::<Vec<String>>()
-        .await;
+        .collect()
+        .await
+        .iter()
+        .map(|r| r.as_ref().unwrap().file_name())
+        .collect::<Vec<String>>();
     assert_eq!(filenames, [".", ".."]);
 
     let filenames = root_dir
         .iter()
-        .map(|r| async { r.unwrap().file_name() })
-        .collect::<Vec<String>>()
-        .await;
+        .collect()
+        .await
+        .iter()
+        .map(|r| r.as_ref().unwrap().file_name())
+        .collect::<Vec<String>>();
     assert_eq!(filenames, ["subdir1", "new-name.txt"]);
 }
 

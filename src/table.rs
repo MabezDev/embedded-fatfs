@@ -5,7 +5,6 @@ use core::marker::PhantomData;
 use crate::error::{Error, IoError, ReadExactError};
 use crate::fs::{FatType, FsStatusFlags};
 use crate::io::{self, IoBase, Read, ReadLeExt, Seek, Write, WriteLeExt};
-use async_iterator::Iterator as AsyncIterator;
 
 struct Fat<S> {
     phantom: PhantomData<S>,
@@ -637,18 +636,8 @@ where
         }
         Ok(num_free)
     }
-}
 
-impl<B, E, S> AsyncIterator for ClusterIterator<B, E, S>
-where
-    B: BorrowMut<S>,
-    E: IoError,
-    S: Read + Write + Seek,
-    Error<E>: From<S::Error> + From<ReadExactError<S::Error>>,
-{
-    type Item = Result<u32, Error<E>>;
-
-    async fn next(&mut self) -> Option<Self::Item> {
+    pub async fn next(&mut self) -> Option<Result<u32, Error<E>>> {
         if self.err {
             return None;
         }
@@ -717,8 +706,15 @@ mod tests {
         assert_eq!(count_free_clusters(&mut cur, fat_type, 0x1E).await.ok(), Some(3));
         // test reading from iterator
         {
-            let iter = ClusterIterator::<&mut S, S::Error, S>::new(&mut cur, fat_type, 0x9);
-            let actual_cluster_numbers = iter.map(|s| async { s.ok() }).collect::<Vec<_>>().await;
+            let mut iter = ClusterIterator::<&mut S, S::Error, S>::new(&mut cur, fat_type, 0x9);
+            let actual_cluster_numbers = {
+                let mut v = Vec::new();
+                while let Some(i) = iter.next().await {
+                    v.push(i.ok())
+                }
+
+                v
+            };
             let expected_cluster_numbers = [0xA_u32, 0x14_u32, 0x15_u32, 0x16_u32, 0x19_u32, 0x1A_u32]
                 .iter()
                 .cloned()
