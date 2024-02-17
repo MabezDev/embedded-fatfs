@@ -637,7 +637,6 @@ where
         Ok(num_free)
     }
 
-    
     pub async fn next(&mut self) -> Option<Result<u32, Error<E>>> {
         if self.err {
             return None;
