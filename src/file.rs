@@ -6,7 +6,6 @@ use crate::error::Error;
 use crate::fs::{FileSystem, ReadWriteSeek};
 use crate::io::{IoBase, Read, Seek, SeekFrom, Write};
 use crate::time::{Date, DateTime, TimeProvider};
-use async_iterator::Iterator as AsyncIterator;
 
 const MAX_FILE_SIZE: u32 = core::u32::MAX;
 

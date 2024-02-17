@@ -1,6 +1,5 @@
 use std::str;
 
-use async_iterator::Iterator;
 use embedded_fatfs::{ChronoTimeProvider, FatType, FsOptions, LossyOemCpConverter};
 use embedded_io_async::{Read, Seek, SeekFrom};
 
@@ -23,7 +22,8 @@ async fn create_fs(name: &str) -> FileSystem {
 
 async fn test_root_dir(fs: FileSystem) {
     let root_dir = fs.root_dir();
-    let entries = root_dir.iter().map(|r| async { r.unwrap() }).collect::<Vec<_>>().await;
+    let entries = root_dir.iter().collect().await;
+    let entries = entries.iter().map(|r| r.as_ref().unwrap()).collect::<Vec<_>>();
     let short_names = entries.iter().map(|e| e.short_file_name()).collect::<Vec<String>>();
     assert_eq!(short_names, ["LONG.TXT", "SHORT.TXT", "VERY", "VERY-L~1"]);
     let names = entries.iter().map(|e| e.file_name()).collect::<Vec<String>>();
@@ -31,9 +31,11 @@ async fn test_root_dir(fs: FileSystem) {
     // Try read again
     let names2 = root_dir
         .iter()
-        .map(|r| async { r.unwrap().file_name() })
-        .collect::<Vec<String>>()
-        .await;
+        .collect()
+        .await
+        .iter()
+        .map(|r| r.as_ref().unwrap().file_name())
+        .collect::<Vec<String>>();
     assert_eq!(names2, names);
 }
 
@@ -154,30 +156,38 @@ async fn test_get_dir_by_path(fs: FileSystem) {
     let dir = root_dir.open_dir("very/long/path/").await.unwrap();
     let names = dir
         .iter()
-        .map(|r| async { r.unwrap().file_name() })
-        .collect::<Vec<String>>()
-        .await;
+        .collect()
+        .await
+        .iter()
+        .map(|r| r.as_ref().unwrap().file_name())
+        .collect::<Vec<String>>();
     assert_eq!(names, [".", "..", "test.txt"]);
 
     let dir2 = root_dir.open_dir("very/long/path/././.").await.unwrap();
     let names2 = dir2
         .iter()
-        .map(|r| async { r.unwrap().file_name() })
-        .collect::<Vec<String>>()
-        .await;
+        .collect()
+        .await
+        .iter()
+        .map(|r| r.as_ref().unwrap().file_name())
+        .collect::<Vec<String>>();
     assert_eq!(names2, [".", "..", "test.txt"]);
 
     let root_dir2 = root_dir.open_dir("very/long/path/../../..").await.unwrap();
     let root_names = root_dir2
         .iter()
-        .map(|r| async { r.unwrap().file_name() })
-        .collect::<Vec<String>>()
-        .await;
+        .collect()
+        .await
+        .iter()
+        .map(|r| r.as_ref().unwrap().file_name())
+        .collect::<Vec<String>>();
     let root_names2 = root_dir
         .iter()
-        .map(|r| async { r.unwrap().file_name() })
-        .collect::<Vec<String>>()
-        .await;
+        .collect()
+        .await
+        .iter()
+        .map(|r| r.as_ref().unwrap().file_name())
+        .collect::<Vec<String>>();
     assert_eq!(root_names, root_names2);
 
     root_dir.open_dir("VERY-L~1").await.unwrap();

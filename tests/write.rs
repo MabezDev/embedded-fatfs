@@ -2,7 +2,6 @@ use std::future::Future;
 use std::str;
 use tokio::fs;
 
-use async_iterator::Iterator as AsyncIterator;
 use embedded_fatfs::{ChronoTimeProvider, FsOptions, LossyOemCpConverter};
 use embedded_io_async::{Seek, SeekFrom, Write};
 
@@ -112,31 +111,39 @@ async fn test_remove(fs: FileSystem) {
     let dir = root_dir.open_dir("very/long/path").await.unwrap();
     let mut names = dir
         .iter()
-        .map(|r| async { r.unwrap().file_name() })
-        .collect::<Vec<String>>()
-        .await;
+        .collect()
+        .await
+        .iter()
+        .map(|r| r.as_ref().unwrap().file_name())
+        .collect::<Vec<String>>();
     assert_eq!(names, [".", "..", "test.txt"]);
     root_dir.remove("very/long/path/test.txt").await.unwrap();
     names = dir
         .iter()
-        .map(|r| async { r.unwrap().file_name() })
-        .collect::<Vec<String>>()
-        .await;
+        .collect()
+        .await
+        .iter()
+        .map(|r| r.as_ref().unwrap().file_name())
+        .collect::<Vec<String>>();
     assert_eq!(names, [".", ".."]);
     assert!(root_dir.remove("very/long/path").await.is_ok());
 
     names = root_dir
         .iter()
-        .map(|r| async { r.unwrap().file_name() })
-        .collect::<Vec<String>>()
-        .await;
+        .collect()
+        .await
+        .iter()
+        .map(|r| r.as_ref().unwrap().file_name())
+        .collect::<Vec<String>>();
     assert_eq!(names, ["long.txt", "short.txt", "very", "very-long-dir-name"]);
     root_dir.remove("long.txt").await.unwrap();
     names = root_dir
         .iter()
-        .map(|r| async { r.unwrap().file_name() })
-        .collect::<Vec<String>>()
-        .await;
+        .collect()
+        .await
+        .iter()
+        .map(|r| r.as_ref().unwrap().file_name())
+        .collect::<Vec<String>>();
     assert_eq!(names, ["short.txt", "very", "very-long-dir-name"]);
 }
 
@@ -160,9 +167,11 @@ async fn test_create_file(fs: FileSystem) {
     let dir = root_dir.open_dir("very/long/path").await.unwrap();
     let mut names = dir
         .iter()
-        .map(|r| async { r.unwrap().file_name() })
-        .collect::<Vec<String>>()
-        .await;
+        .collect()
+        .await
+        .iter()
+        .map(|r| r.as_ref().unwrap().file_name())
+        .collect::<Vec<String>>();
     assert_eq!(names, [".", "..", "test.txt"]);
     {
         // test some invalid names
@@ -178,15 +187,19 @@ async fn test_create_file(fs: FileSystem) {
     // check for dir entry
     names = dir
         .iter()
-        .map(|r| async { r.unwrap().file_name() })
-        .collect::<Vec<String>>()
-        .await;
+        .collect()
+        .await
+        .iter()
+        .map(|r| r.as_ref().unwrap().file_name())
+        .collect::<Vec<String>>();
     assert_eq!(names, [".", "..", "test.txt", "new-file-with-long-name.txt"]);
     names = dir
         .iter()
-        .map(|r| async { r.unwrap().short_file_name() })
-        .collect::<Vec<String>>()
-        .await;
+        .collect()
+        .await
+        .iter()
+        .map(|r| r.as_ref().unwrap().short_file_name())
+        .collect::<Vec<String>>();
     assert_eq!(names, [".", "..", "TEST.TXT", "NEW-FI~1.TXT"]);
     {
         // check contents
@@ -204,9 +217,11 @@ async fn test_create_file(fs: FileSystem) {
     }
     names = dir
         .iter()
-        .map(|r| async { r.unwrap().file_name() })
-        .collect::<Vec<String>>()
-        .await;
+        .collect()
+        .await
+        .iter()
+        .map(|r| r.as_ref().unwrap().file_name())
+        .collect::<Vec<String>>();
     assert_eq!(names.len(), 4 + 512 / 32);
     // check creating existing file opens it
     {
@@ -241,9 +256,11 @@ async fn test_create_dir(fs: FileSystem) {
     let parent_dir = root_dir.open_dir("very/long/path").await.unwrap();
     let mut names = parent_dir
         .iter()
-        .map(|r| async { r.unwrap().file_name() })
-        .collect::<Vec<String>>()
-        .await;
+        .collect()
+        .await
+        .iter()
+        .map(|r| r.as_ref().unwrap().file_name())
+        .collect::<Vec<String>>();
     assert_eq!(names, [".", "..", "test.txt"]);
     {
         let subdir = root_dir
@@ -252,17 +269,21 @@ async fn test_create_dir(fs: FileSystem) {
             .unwrap();
         names = subdir
             .iter()
-            .map(|r| async { r.unwrap().file_name() })
-            .collect::<Vec<String>>()
-            .await;
+            .collect()
+            .await
+            .iter()
+            .map(|r| r.as_ref().unwrap().file_name())
+            .collect::<Vec<String>>();
         assert_eq!(names, [".", ".."]);
     }
     // check if new entry is visible in parent
     names = parent_dir
         .iter()
-        .map(|r| async { r.unwrap().file_name() })
-        .collect::<Vec<String>>()
-        .await;
+        .collect()
+        .await
+        .iter()
+        .map(|r| r.as_ref().unwrap().file_name())
+        .collect::<Vec<String>>();
     assert_eq!(names, [".", "..", "test.txt", "new-dir-with-long-name"]);
     {
         // Check if new directory can be opened and read
@@ -272,9 +293,11 @@ async fn test_create_dir(fs: FileSystem) {
             .unwrap();
         names = subdir
             .iter()
-            .map(|r| async { r.unwrap().file_name() })
-            .collect::<Vec<String>>()
-            .await;
+            .collect()
+            .await
+            .iter()
+            .map(|r| r.as_ref().unwrap().file_name())
+            .collect::<Vec<String>>();
         assert_eq!(names, [".", ".."]);
     }
     // Check if '.' is alias for new directory
@@ -285,9 +308,11 @@ async fn test_create_dir(fs: FileSystem) {
             .unwrap();
         names = subdir
             .iter()
-            .map(|r| async { r.unwrap().file_name() })
-            .collect::<Vec<String>>()
-            .await;
+            .collect()
+            .await
+            .iter()
+            .map(|r| r.as_ref().unwrap().file_name())
+            .collect::<Vec<String>>();
         assert_eq!(names, [".", ".."]);
     }
     // Check if '..' is alias for parent directory
@@ -298,9 +323,11 @@ async fn test_create_dir(fs: FileSystem) {
             .unwrap();
         names = subdir
             .iter()
-            .map(|r| async { r.unwrap().file_name() })
-            .collect::<Vec<String>>()
-            .await;
+            .collect()
+            .await
+            .iter()
+            .map(|r| r.as_ref().unwrap().file_name())
+            .collect::<Vec<String>>();
         assert_eq!(names, [".", "..", "test.txt", "new-dir-with-long-name"]);
     }
     // check if creating existing directory returns it
@@ -308,9 +335,11 @@ async fn test_create_dir(fs: FileSystem) {
         let subdir = root_dir.create_dir("very").await.unwrap();
         names = subdir
             .iter()
-            .map(|r| async { r.unwrap().file_name() })
-            .collect::<Vec<String>>()
-            .await;
+            .collect()
+            .await
+            .iter()
+            .map(|r| r.as_ref().unwrap().file_name())
+            .collect::<Vec<String>>();
         assert_eq!(names, [".", "..", "long"]);
     }
     // check short names validity after create_dir
@@ -318,9 +347,11 @@ async fn test_create_dir(fs: FileSystem) {
         let subdir = root_dir.create_dir("test").await.unwrap();
         names = subdir
             .iter()
-            .map(|r| async { r.unwrap().short_file_name() })
-            .collect::<Vec<String>>()
-            .await;
+            .collect()
+            .await
+            .iter()
+            .map(|r| r.as_ref().unwrap().short_file_name())
+            .collect::<Vec<String>>();
         assert_eq!(names, [".", ".."]);
     }
 
@@ -346,11 +377,8 @@ async fn test_create_dir_fat32() {
 async fn test_rename_file(fs: FileSystem) {
     let root_dir = fs.root_dir();
     let parent_dir = root_dir.open_dir("very/long/path").await.unwrap();
-    let entries = parent_dir
-        .iter()
-        .map(|r| async { r.unwrap() })
-        .collect::<Vec<_>>()
-        .await;
+    let entries = parent_dir.iter().collect().await;
+    let entries = entries.iter().map(|r| r.as_ref().unwrap()).collect::<Vec<_>>();
     let names = entries.iter().map(|r| r.file_name()).collect::<Vec<_>>();
     assert_eq!(names, [".", "..", "test.txt"]);
     assert_eq!(entries[2].len(), 14);
@@ -360,11 +388,8 @@ async fn test_rename_file(fs: FileSystem) {
         .rename("test.txt", &parent_dir, "new-long-name.txt")
         .await
         .unwrap();
-    let entries = parent_dir
-        .iter()
-        .map(|r| async { r.unwrap() })
-        .collect::<Vec<_>>()
-        .await;
+    let entries = parent_dir.iter().collect().await;
+    let entries = entries.iter().map(|r| r.as_ref().unwrap()).collect::<Vec<_>>();
     let names = entries.iter().map(|r| r.file_name()).collect::<Vec<_>>();
     assert_eq!(names, [".", "..", "new-long-name.txt"]);
     assert_eq!(entries[2].len(), TEST_STR2.len() as u64);
@@ -376,7 +401,8 @@ async fn test_rename_file(fs: FileSystem) {
         .rename("new-long-name.txt", &root_dir, "moved-file.txt")
         .await
         .unwrap();
-    let entries = root_dir.iter().map(|r| async { r.unwrap() }).collect::<Vec<_>>().await;
+    let entries = root_dir.iter().collect().await;
+    let entries = entries.iter().map(|r| r.as_ref().unwrap()).collect::<Vec<_>>();
     let names = entries.iter().map(|r| r.file_name()).collect::<Vec<_>>();
     assert_eq!(
         names,
@@ -388,7 +414,8 @@ async fn test_rename_file(fs: FileSystem) {
     assert_eq!(str::from_utf8(&buf).unwrap(), TEST_STR2);
 
     assert!(root_dir.rename("moved-file.txt", &root_dir, "short.txt").await.is_err());
-    let entries = root_dir.iter().map(|r| async { r.unwrap() }).collect::<Vec<_>>().await;
+    let entries = root_dir.iter().collect().await;
+    let entries = entries.iter().map(|r| r.as_ref().unwrap()).collect::<Vec<_>>();
     let names = entries.iter().map(|r| r.file_name()).collect::<Vec<_>>();
     assert_eq!(
         names,
@@ -463,7 +490,8 @@ async fn test_multiple_files_in_directory(fs: FileSystem) {
         file.write_all(TEST_STR.as_bytes()).await.unwrap();
         file.flush().await.unwrap();
 
-        let files = dir.iter().map(|r| async { r.unwrap() }).collect::<Vec<_>>().await;
+        let files = dir.iter().collect().await;
+        let files = files.iter().map(|r| r.as_ref().unwrap()).collect::<Vec<_>>();
         let file = files.iter().find(|e| e.file_name() == name).unwrap();
         assert_eq!(TEST_STR.len() as u64, file.len(), "Wrong file len on iteration {}", i);
     }
