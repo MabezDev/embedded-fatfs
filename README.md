@@ -5,7 +5,7 @@ embedded-fatfs
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE.txt)
 [![crates.io](https://img.shields.io/crates/v/embedded-fatfs)](https://crates.io/crates/embedded-fatfs)
 [![Documentation](https://docs.rs/embedded-fatfs/badge.svg)](https://docs.rs/embedded-fatfs)
-![Minimum rustc version](https://img.shields.io/badge/rustc-nightly-yellow.svg)
+![Minimum rustc version](https://img.shields.io/badge/rustc-1.75+-green.svg)
 
 A FAT filesystem library implemented in Rust. Built on the shoulders of the amazing [rust-fatfs](https://github.com/rafalh/rust-fatfs) crate by [@rafalh](https://github.com/rafalh).
 

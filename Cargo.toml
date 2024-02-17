@@ -39,7 +39,7 @@ default = ["chrono", "std", "alloc", "lfn", "unicode", "log"]
 [dependencies]
 # core deps
 bitflags = "1.0"
-embedded-io-async = "0.6"
+embedded-io-async = "0.6.1"
 
 # optional deps
 embedded-io-adapters = { version = "0.6", package = "embedded-io-adapters", features = ["tokio-1"], optional = true }
