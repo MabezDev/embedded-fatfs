@@ -2,7 +2,10 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
+use block_device_adapters::BufStream;
 use embassy_executor::Spawner;
+use embedded_fatfs::FsOptions;
+use embedded_io_async::{Read, Write};
 use esp32c6_hal::{
     clock::ClockControl,
     dma::DmaPriority,
@@ -16,8 +19,8 @@ use esp32c6_hal::{
     },
     FlashSafeDma, IO,
 };
-use static_cell::make_static;
 use esp_backtrace as _;
+use static_cell::make_static;
 
 #[main]
 async fn main(_spawner: Spawner) {
@@ -64,17 +67,31 @@ async fn main(_spawner: Spawner) {
 
     log::info!("Initialization complete!");
 
-    // we _must_ do this make static dance because the buffer might be placed in the cache
-    // the DMA, used in async spi cannot write there, therefore read operations will fail.
-    let mbr = make_static!([[0xAAu8; 512], [0xBB; 512]]);
-    log::info!("Addr of buffer: {:p}", mbr.as_slice().as_ptr());
+    let inner = BufStream::<_, 512, 4>::new(sd);
 
-    sd.write(0, mbr).await.unwrap();
-    mbr[0].fill(0); // reset the block for reading
-    mbr[1].fill(0); // reset the block for reading
-    sd.read(0, mbr).await.unwrap();
+    let fs = embedded_fatfs::FileSystem::new(inner, FsOptions::new())
+        .await
+        .unwrap();
 
-    log::info!("Contents of MBR: {:?}", mbr);
+    {
+        let mut f = fs.root_dir().create_file("test.log").await.unwrap();
+        let hello = b"Hello world!";
+        f.write_all(hello).await.unwrap();
+        f.flush().await.unwrap();
+    }
+
+    // See https://github.com/MabezDev/embedded-fatfs/issues/19 for why this re open is currently needed
+    {
+        let mut f = fs.root_dir().open_file("test.log").await.unwrap();
+        let mut buf = [0u8; 12];
+        f.read_exact(&mut buf[..]).await.unwrap();
+        log::info!(
+            "Read from file: {}",
+            core::str::from_utf8(&buf[..]).unwrap()
+        );
+    }
+
+    fs.unmount().await.unwrap();
 
     loop {}
 }
