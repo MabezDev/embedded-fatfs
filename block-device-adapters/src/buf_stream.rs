@@ -1,8 +1,6 @@
-
-
+use block_device_driver::BlockDevice;
 use elain::{Align, Alignment};
 use embedded_io_async::{ErrorKind, Read, Seek, SeekFrom, Write};
-use block_device_driver::BlockDevice;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -102,7 +100,9 @@ where
             self.flush().await?;
             // We have seeked to a new block, read it
             let buf = &mut self.buffer[..];
-            self.inner.read(block_start, slice_to_blocks_mut(buf)).await?;
+            self.inner
+                .read(block_start, slice_to_blocks_mut(buf))
+                .await?;
             self.current_block = block_start;
         }
         Ok(())
@@ -169,7 +169,8 @@ where
     }
 }
 
-impl<T: BlockDevice<SIZE>, const SIZE: usize, const ALIGN: usize> Write for BufStream<T, SIZE, ALIGN>
+impl<T: BlockDevice<SIZE>, const SIZE: usize, const ALIGN: usize> Write
+    for BufStream<T, SIZE, ALIGN>
 where
     Align<ALIGN>: Alignment,
 {
@@ -206,7 +207,8 @@ where
                 let end = core::cmp::min(buffer_offset + bytes_to_write, SIZE);
                 trace!("buffer_offset {}, end {}", buffer_offset, end);
                 let bytes_written = end - buffer_offset;
-                self.buffer[buffer_offset..buffer_offset + bytes_written].copy_from_slice(&buf[..bytes_written]);
+                self.buffer[buffer_offset..buffer_offset + bytes_written]
+                    .copy_from_slice(&buf[..bytes_written]);
                 buf = &buf[bytes_written..]; // move the buffer along
 
                 // If we haven't written directly, we will use the cache, which will may need to flush later
@@ -246,7 +248,9 @@ fn slice_to_blocks<const SIZE: usize>(slice: &[u8]) -> &[[u8; SIZE]] {
 fn slice_to_blocks_mut<const SIZE: usize>(slice: &mut [u8]) -> &mut [[u8; SIZE]] {
     assert!(slice.len() % SIZE == 0);
     // Note unsafe: we check the buf has the correct SIZE before casting
-    unsafe { core::slice::from_raw_parts_mut(slice.as_mut_ptr() as *mut [u8; SIZE], slice.len() / SIZE) }
+    unsafe {
+        core::slice::from_raw_parts_mut(slice.as_mut_ptr() as *mut [u8; SIZE], slice.len() / SIZE)
+    }
 }
 
 impl<T: BlockDevice<SIZE>, const SIZE: usize, const ALIGN: usize> Seek for BufStream<T, SIZE, ALIGN>
@@ -338,8 +342,14 @@ mod tests {
         type Error = T::Error;
 
         /// Read one or more blocks at the given block address.
-        async fn read(&mut self, block_address: u32, data: &mut [[u8; 512]]) -> Result<(), Self::Error> {
-            self.0.seek(SeekFrom::Start((block_address * 512).into())).await?;
+        async fn read(
+            &mut self,
+            block_address: u32,
+            data: &mut [[u8; 512]],
+        ) -> Result<(), Self::Error> {
+            self.0
+                .seek(SeekFrom::Start((block_address * 512).into()))
+                .await?;
             for b in data {
                 self.0.read(b).await?;
             }
@@ -347,8 +357,14 @@ mod tests {
         }
 
         /// Write one or more blocks at the given block address.
-        async fn write(&mut self, block_address: u32, data: &[[u8; 512]]) -> Result<(), Self::Error> {
-            self.0.seek(SeekFrom::Start((block_address * 512).into())).await?;
+        async fn write(
+            &mut self,
+            block_address: u32,
+            data: &[[u8; 512]],
+        ) -> Result<(), Self::Error> {
+            self.0
+                .seek(SeekFrom::Start((block_address * 512).into()))
+                .await?;
             for b in data {
                 self.0.write(b).await?;
             }
@@ -365,8 +381,9 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = ("A".repeat(512) + "B".repeat(512).as_str()).into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> =
-            BufStream::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
+        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+            embedded_io_adapters::tokio_1::FromTokio::new(cur),
+        ));
 
         // Test sector aligned access
         let mut buf = vec![0; 128];
@@ -389,10 +406,13 @@ mod tests {
     #[tokio::test]
     async fn block_512_read_successive() {
         let _ = env_logger::builder().is_test(true).try_init();
-        let buf = ("A".repeat(64) + "B".repeat(64).as_str()).repeat(16).into_bytes();
+        let buf = ("A".repeat(64) + "B".repeat(64).as_str())
+            .repeat(16)
+            .into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> =
-            BufStream::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
+        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+            embedded_io_adapters::tokio_1::FromTokio::new(cur),
+        ));
 
         // Test sector aligned access
         let mut buf = vec![0; 64];
@@ -416,14 +436,18 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> =
-            BufStream::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
+        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+            embedded_io_adapters::tokio_1::FromTokio::new(cur),
+        ));
 
         // Test sector aligned access
         let data_a = "A".repeat(512).into_bytes();
         block.seek(SeekFrom::Start(0)).await.unwrap();
         block.write_all(&data_a).await.unwrap();
-        assert_eq!(&block.into_inner().0.into_inner().into_inner()[..512], data_a)
+        assert_eq!(
+            &block.into_inner().0.into_inner().into_inner()[..512],
+            data_a
+        )
     }
 
     #[tokio::test]
@@ -431,8 +455,9 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> =
-            BufStream::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
+        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+            embedded_io_adapters::tokio_1::FromTokio::new(cur),
+        ));
 
         // Test sector aligned access
         let data_a = "A".repeat(512).into_bytes();
@@ -450,8 +475,9 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> =
-            BufStream::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
+        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+            embedded_io_adapters::tokio_1::FromTokio::new(cur),
+        ));
 
         let mut aligned_buffer: AlignedBuffer<512, 4> = AlignedBuffer::new();
         let data_a = "A".repeat(512).into_bytes();
@@ -464,7 +490,10 @@ mod tests {
         // ensure that the current offset is still updated
         assert_eq!(block.current_offset, 512);
         // the write suceeded
-        assert_eq!(&block.into_inner().0.into_inner().into_inner()[..512], &data_a)
+        assert_eq!(
+            &block.into_inner().0.into_inner().into_inner()[..512],
+            &data_a
+        )
     }
 
     #[tokio::test]
@@ -472,8 +501,9 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> =
-            BufStream::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
+        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+            embedded_io_adapters::tokio_1::FromTokio::new(cur),
+        ));
 
         let mut aligned_buffer: AlignedBuffer<2048, 4> = AlignedBuffer::new();
         let data_a = "A".repeat(512).into_bytes();
@@ -487,7 +517,10 @@ mod tests {
         // because the addr was not block aligned, we will have used the cache
         assert_ne!(&block.buffer[..], [0u8; 512]);
         // the write suceeded
-        assert_eq!(&block.into_inner().0.into_inner().into_inner()[3..515], &data_a)
+        assert_eq!(
+            &block.into_inner().0.into_inner().into_inner()[3..515],
+            &data_a
+        )
     }
 
     #[tokio::test]
@@ -495,8 +528,9 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = "A".repeat(2048).into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> =
-            BufStream::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
+        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+            embedded_io_adapters::tokio_1::FromTokio::new(cur),
+        ));
 
         let mut aligned_buffer: AlignedBuffer<512, 4> = AlignedBuffer::new();
         block.seek(SeekFrom::Start(0)).await.unwrap();
@@ -518,8 +552,9 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = "A".repeat(2048).into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> =
-            BufStream::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
+        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+            embedded_io_adapters::tokio_1::FromTokio::new(cur),
+        ));
 
         let mut aligned_buffer: AlignedBuffer<512, 4> = AlignedBuffer::new();
         // seek away from aligned block
@@ -543,11 +578,15 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = "A".repeat(2048).into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> =
-            BufStream::new(TestBlockDevice(embedded_io_adapters::tokio_1::FromTokio::new(cur)));
+        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+            embedded_io_adapters::tokio_1::FromTokio::new(cur),
+        ));
 
         block.seek(SeekFrom::Start(524)).await.unwrap();
-        block.write_all(&"B".repeat(512).into_bytes()).await.unwrap();
+        block
+            .write_all(&"B".repeat(512).into_bytes())
+            .await
+            .unwrap();
         block.flush().await.unwrap();
 
         block.seek(SeekFrom::Start(0)).await.unwrap();
@@ -557,7 +596,10 @@ mod tests {
         assert_eq!(&tmp[..], "A".repeat(256).into_bytes().as_slice());
 
         block.seek(SeekFrom::Start(524 + 512)).await.unwrap();
-        block.write_all(&"C".repeat(512).into_bytes()).await.unwrap();
+        block
+            .write_all(&"C".repeat(512).into_bytes())
+            .await
+            .unwrap();
         block.flush().await.unwrap();
 
         let buf = block.into_inner().0.into_inner().into_inner();

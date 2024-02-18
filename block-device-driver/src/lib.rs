@@ -8,7 +8,11 @@ pub trait BlockDevice<const SIZE: usize> {
     type Error: core::fmt::Debug;
 
     /// Read one or more blocks at the given block address.
-    async fn read(&mut self, block_address: u32, data: &mut [[u8; SIZE]]) -> Result<(), Self::Error>;
+    async fn read(
+        &mut self,
+        block_address: u32,
+        data: &mut [[u8; SIZE]],
+    ) -> Result<(), Self::Error>;
 
     /// Write one or more blocks at the given block address.
     async fn write(&mut self, block_address: u32, data: &[[u8; SIZE]]) -> Result<(), Self::Error>;

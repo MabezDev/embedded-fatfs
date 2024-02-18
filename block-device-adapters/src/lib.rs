@@ -5,8 +5,8 @@
 // MUST be the first module listed
 mod fmt;
 
-mod stream_slice;
 mod buf_stream;
+mod stream_slice;
 
-pub use stream_slice::{StreamSlice, StreamSliceError};
 pub use buf_stream::{BufStream, BufStreamError};
+pub use stream_slice::{StreamSlice, StreamSliceError};

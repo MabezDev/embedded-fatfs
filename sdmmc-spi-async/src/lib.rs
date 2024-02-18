@@ -145,13 +145,13 @@ where
 
     async fn read(
         &mut self,
-        block_address: u32,
-        data: &mut [[u8; SIZE]],
+        _block_address: u32,
+        _data: &mut [[u8; SIZE]],
     ) -> Result<(), Self::Error> {
         todo!()
     }
 
-    async fn write(&mut self, block_address: u32, data: &[[u8; SIZE]]) -> Result<(), Self::Error> {
+    async fn write(&mut self, _block_address: u32, _data: &[[u8; SIZE]]) -> Result<(), Self::Error> {
         todo!()
     }
 

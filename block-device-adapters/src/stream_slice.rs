@@ -1,5 +1,3 @@
-
-
 use core::cmp;
 use core::fmt::Debug;
 use embedded_io_async::{Read, Seek, SeekFrom, Write};
@@ -31,7 +29,9 @@ impl<E: Debug> embedded_io_async::Error for StreamSliceError<E> {
     fn kind(&self) -> embedded_io_async::ErrorKind {
         match self {
             StreamSliceError::InvalidSeek(_) => embedded_io_async::ErrorKind::InvalidInput,
-            StreamSliceError::Other(_) | StreamSliceError::WriteZero => embedded_io_async::ErrorKind::Other,
+            StreamSliceError::Other(_) | StreamSliceError::WriteZero => {
+                embedded_io_async::ErrorKind::Other
+            }
         }
     }
 }
@@ -46,7 +46,11 @@ impl<T: Read + Write + Seek> StreamSlice<T> {
     /// `start_offset` is inclusive offset of the first accessible byte.
     /// `end_offset` is exclusive offset of the first non-accessible byte.
     /// `start_offset` must be lower or equal to `end_offset`.
-    pub async fn new(mut inner: T, start_offset: u64, end_offset: u64) -> Result<Self, StreamSliceError<T::Error>> {
+    pub async fn new(
+        mut inner: T,
+        start_offset: u64,
+        end_offset: u64,
+    ) -> Result<Self, StreamSliceError<T::Error>> {
         debug_assert!(end_offset >= start_offset);
         inner.seek(SeekFrom::Start(start_offset)).await?;
         let size = end_offset - start_offset;
@@ -118,9 +122,10 @@ mod test {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = "BeforeTest dataAfter".to_string().into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut stream = StreamSlice::new(embedded_io_adapters::tokio_1::FromTokio::new(cur), 6, 6 + 9)
-            .await
-            .unwrap();
+        let mut stream =
+            StreamSlice::new(embedded_io_adapters::tokio_1::FromTokio::new(cur), 6, 6 + 9)
+                .await
+                .unwrap();
 
         let data = read_to_string(&mut stream).await.unwrap();
         assert_eq!(data, "Test data");
