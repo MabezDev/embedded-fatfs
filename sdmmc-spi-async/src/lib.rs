@@ -429,11 +429,7 @@ where
         self.read(block_address, data).await
     }
 
-    async fn write(
-        &mut self,
-        block_address: u32,
-        data: &[[u8; SIZE]],
-    ) -> Result<(), Self::Error> {
+    async fn write(&mut self, block_address: u32, data: &[[u8; SIZE]]) -> Result<(), Self::Error> {
         self.write(block_address, data).await
     }
 
