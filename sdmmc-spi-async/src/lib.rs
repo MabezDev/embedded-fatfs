@@ -3,7 +3,7 @@
 use core::fmt::Debug;
 use core::future::Future;
 use embassy_futures::select::{select, Either};
-use sdio_host::sd::{CardCapacity, CardStatus, CurrentState, SDStatus, CID, CSD, OCR, SCR, SD};
+use sdio_host::sd::{CardCapacity, SDStatus, CID, CSD, OCR, SD};
 use sdio_host::{common_cmd::*, sd_cmd::*};
 
 // MUST be the first module listed
@@ -39,8 +39,8 @@ pub struct Card {
     pub cid: CID<SD>,
     /// Card Specific Data
     pub csd: CSD<SD>,
-    /// SD CARD Configuration Register
-    pub scr: SCR,
+    // /// SD CARD Configuration Register
+    // pub scr: SCR,
     /// SD Status
     pub status: SDStatus,
 }
@@ -62,6 +62,9 @@ pub enum Error {
     Timeout,
     UnsupportedCard,
     Cmd58Error,
+    Cmd59Error,
+    RegisterError(u8),
+    CrcMismatch(u16, u16)
 }
 
 pub struct SpiSdmmc<SPI, CS, D>
@@ -93,89 +96,161 @@ where
 
     pub async fn init(&mut self) -> Result<(), Error> {
         self.cs.set_high().map_err(|_| Error::ChipSelect)?;
-        // Supply minimum of 74 clock cycles without CS asserted.
-        self.spi
-            .write(&[0xFF; 10])
-            .await
-            .map_err(|_| Error::SpiError)?;
-        self.cs.set_low().map_err(|_| Error::ChipSelect)?;
+        let r = async {
+            // Supply minimum of 74 clock cycles without CS asserted.
+            self.spi
+                .write(&[0xFF; 10])
+                .await
+                .map_err(|_| Error::SpiError)?;
+            self.cs.set_low().map_err(|_| Error::ChipSelect)?;
 
-        with_timeout(self.delay.clone(), 1000, async {
-            loop {
-                let r = self.cmd(idle()).await?;
-                trace!("Idle resp: {}", r);
-                if r == R1_IDLE_STATE {
-                    return Ok(());
+            with_timeout(self.delay.clone(), 1000, async {
+                loop {
+                    let r = self.cmd(idle()).await?;
+                    trace!("Idle resp: {}", r);
+                    if r == R1_IDLE_STATE {
+                        return Ok(());
+                    }
                 }
+            })
+            .await??;
+
+            // "The SPI interface is initialized in the CRC OFF mode in default"
+            // -- SD Part 1 Physical Layer Specification v9.00, Section 7.2.2 Bus Transfer Protection
+            if self.cmd(cmd::<R1>(0x3B, 1)).await? != R1_IDLE_STATE {
+                return Err(Error::Cmd59Error);
             }
-        })
-        .await??;
 
-        // TODO enable crc
-        // cmd::<R3>(0x3A, 0) // <- custom cmd
+            with_timeout(self.delay.clone(), 1000, async {
+                loop {
+                    let r = self.cmd(send_if_cond(0x1, 0xAA)).await?;
+                    if r == (R1_ILLEGAL_COMMAND | R1_IDLE_STATE) {
+                        return Err(Error::UnsupportedCard);
+                    }
+                    let mut buffer = [0xFFu8; 4];
+                    self.spi
+                        .transfer_in_place(&mut buffer[..])
+                        .await
+                        .map_err(|_| Error::SpiError)?;
+                    if buffer[3] == 0xAA {
+                        return Ok(());
+                    }
+                }
+            })
+            .await??;
 
-        with_timeout(self.delay.clone(), 1000, async {
-            loop {
-                let r = self.cmd(send_if_cond(0x1, 0xAA)).await?;
-                if r == (R1_ILLEGAL_COMMAND | R1_IDLE_STATE) {
-                    return Err(Error::UnsupportedCard);
+            trace!("Valid card detected!");
+
+            // If we get here we're at least a v2 card
+            let mut card = Card::default();
+
+            // send ACMD41
+            with_timeout(self.delay.clone(), 1000, async {
+                loop {
+                    let r = self.acmd(sd_send_op_cond(true, false, true, 0x20)).await?;
+                    if r == R1_READY_STATE {
+                        return Ok(());
+                    }
                 }
-                let mut buffer = [0xFFu8; 4];
-                self.spi
-                    .transfer_in_place(&mut buffer[..])
-                    .await
-                    .map_err(|_| Error::SpiError)?;
-                if buffer[3] == 0xAA {
-                    return Ok(());
+            })
+            .await??;
+
+            trace!("send_ocr");
+            card.ocr = with_timeout(self.delay.clone(), 1000, async {
+                loop {
+                    let r = self.cmd(cmd::<R3>(0x3A, 0)).await?;
+                    if r != R1_READY_STATE {
+                        return Err(Error::Cmd58Error);
+                    }
+                    let mut buffer = [0xFFu8; 4];
+                    self.spi
+                        .transfer_in_place(&mut buffer[..])
+                        .await
+                        .map_err(|_| Error::SpiError)?;
+                    let ocr: OCR<SD> = u32::from_be_bytes(buffer).into();
+                    if !ocr.is_busy() {
+                        return Ok(ocr);
+                    }
                 }
+            })
+            .await??;
+
+            // TODO responds with illegal command, maybe it doesn't work in spi mode?
+            // trace!("send_relative_address");
+            // let r = self.cmd(send_relative_address()).await?;
+            // if r != R1_READY_STATE {
+            //     return Err(Error::RegisterError(r));
+            // }
+            // let mut buffer = [0xFFu8; 4];
+            // self.spi
+            //     .transfer_in_place(&mut buffer[..])
+            //     .await
+            //     .map_err(|_| Error::SpiError)?;
+            // card.rca = u32::from_be_bytes(buffer) >> 16;
+
+            trace!("send_csd");
+            let r = self.cmd(send_csd(card.rca as u16)).await?;
+            if r != R1_READY_STATE {
+                return Err(Error::RegisterError(r));
             }
-        })
-        .await??;
+            let mut csd = [0xFFu8; 16];
+            self.read_data(&mut csd).await?;
+            card.csd = u128::from_be_bytes(csd).into();
 
-        trace!("Valid card detected!");
-
-        // If we get here we're at least a v2 card
-        let mut card = Card::default();
-
-        // send ACMD41
-        with_timeout(self.delay.clone(), 1000, async {
-            loop {
-                let r = self.acmd(sd_send_op_cond(true, false, true, 0x20)).await?;
-                if r == R1_READY_STATE {
-                    return Ok(());
-                }
+            trace!("all_send_cid");
+            let r = self.cmd(send_cid(card.rca as u16)).await?;
+            if r != R1_READY_STATE {
+                return Err(Error::RegisterError(r));
             }
-        })
-        .await??;
+            let mut cid = [0xFFu8; 16];
+            self.read_data(&mut cid).await?;
+            card.cid = u128::from_be_bytes(cid).into();
 
-        trace!("Reading back OCD register");
+            trace!("Card initialized: {:?}", card);
+            info!("Found card with size: {}bytes", card.size());
 
-        card.card_type = with_timeout(self.delay.clone(), 1000, async {
-            loop {
-                let r = self.cmd(cmd::<R3>(0x3A, 0)).await?;
-                if r != R1_READY_STATE {
-                    return Err(Error::Cmd58Error);
-                }
-                let mut buffer = [0xFFu8; 4];
-                self.spi
-                    .transfer_in_place(&mut buffer[..])
-                    .await
-                    .map_err(|_| Error::SpiError)?;
-                return Ok(if buffer[0] & 0xC0 == 0xC0 {
-                    CardCapacity::HighCapacity
-                } else {
-                    CardCapacity::StandardCapacity
-                });
-            }
-        })
-        .await??;
+            self.card = Some(card);
 
-        trace!("Card initialized: {:?}", card);
-
-        self.card = Some(card);
+            Ok(())
+        }
+        .await;
 
         self.cs.set_high().map_err(|_| Error::ChipSelect)?;
-        let _ = self.read_byte().await;
+
+        r
+    }
+
+    async fn read_data(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        let r = with_timeout(self.delay.clone(), 1000, async {
+            let mut byte = 0xFF;
+            while byte == 0xFF {
+                byte = self.read_byte().await?;
+            }
+            Ok(byte)
+        })
+        .await??;
+
+        if r != DATA_START_BLOCK {
+            return Err(Error::RegisterError(r));
+        }
+
+        buffer.fill(0xFF);
+        self.spi
+            .transfer_in_place(buffer)
+            .await
+            .map_err(|_| Error::SpiError)?;
+
+        let mut crc_bytes = [0xFF; 2];
+        self.spi
+            .transfer_in_place(&mut crc_bytes)
+            .await
+            .map_err(|_| Error::SpiError)?;
+        let crc = u16::from_be_bytes(crc_bytes);
+        let calc_crc = crc16(buffer);
+        if crc != calc_crc {
+            return Err(Error::CrcMismatch(crc, calc_crc));
+        }
+
         Ok(())
     }
 
