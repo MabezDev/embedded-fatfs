@@ -13,6 +13,7 @@ log = { version = "0.4.20" }
 embassy-time = "0.3"
 embassy-executor = { version = "0.5.0",  features = ["nightly"] }
 embedded-hal-async = "1"
+static_cell = { version = "1", features = ["nightly"] }
 
 sdmmc-spi-async = { version = "0.1.0", path = "../../sdmmc-spi-async", features = ["log"] }
 block-device-adapters = { version = "0.1.0", path = "../../block-device-adapters" }

@@ -16,6 +16,7 @@ use esp32c6_hal::{
     },
     FlashSafeDma, IO,
 };
+use static_cell::make_static;
 use esp_backtrace as _;
 
 #[main]
@@ -56,12 +57,24 @@ async fn main(_spawner: Spawner) {
 
     let spi = FlashSafeDma::<_, 512>::new(spi);
 
-    let mut sdmmc =
+    let mut sd =
         sdmmc_spi_async::SpiSdmmc::new(spi, cs.into_push_pull_output(), Delay(embassy_time::Delay));
 
-    sdmmc.init().await.unwrap();
+    sd.init().await.unwrap();
 
     log::info!("Initialization complete!");
+
+    // we _must_ do this make static dance because the buffer might be placed in the cache
+    // the DMA, used in async spi cannot write there, therefore read operations will fail.
+    let mbr = make_static!([[0xAAu8; 512], [0xBB; 512]]);
+    log::info!("Addr of buffer: {:p}", mbr.as_slice().as_ptr());
+
+    sd.write(0, mbr).await.unwrap();
+    mbr[0].fill(0); // reset the block for reading
+    mbr[1].fill(0); // reset the block for reading
+    sd.read(0, mbr).await.unwrap();
+
+    log::info!("Contents of MBR: {:?}", mbr);
 
     loop {}
 }

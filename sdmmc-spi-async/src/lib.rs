@@ -64,7 +64,9 @@ pub enum Error {
     Cmd58Error,
     Cmd59Error,
     RegisterError(u8),
-    CrcMismatch(u16, u16)
+    CrcMismatch(u16, u16),
+    NotInitialized,
+    WriteError,
 }
 
 pub struct SpiSdmmc<SPI, CS, D>
@@ -220,6 +222,80 @@ where
         r
     }
 
+    pub async fn read<const SIZE: usize>(
+        &mut self,
+        block_address: u32,
+        data: &mut [[u8; SIZE]],
+    ) -> Result<(), Error> {
+        self.cs.set_low().map_err(|_| Error::ChipSelect)?;
+        let r = async {
+            if data.len() == 1 {
+                self.cmd(read_single_block(block_address)).await?;
+                self.read_data(&mut data[0][..]).await?;
+            } else {
+                self.cmd(read_multiple_blocks(block_address)).await?;
+                for block in data {
+                    self.read_data(&mut block[..]).await?;
+                }
+                self.cmd(stop_transmission()).await?;
+            }
+            Ok(())
+        }
+        .await;
+        self.cs.set_high().map_err(|_| Error::ChipSelect)?;
+
+        r?;
+
+        Ok(())
+    }
+
+    pub async fn write<const SIZE: usize>(
+        &mut self,
+        block_address: u32,
+        data: &[[u8; SIZE]],
+    ) -> Result<(), Error> {
+        self.cs.set_low().map_err(|_| Error::ChipSelect)?;
+        let r = async {
+            if data.len() == 1 {
+                self.cmd(write_single_block(block_address)).await?;
+                self.write_data(DATA_START_BLOCK, &data[0][..]).await?;
+                self.wait_idle().await?;
+                // check status // TODO do this properly
+                if self.cmd(sd_status()).await? != 0 {
+                    return Err(Error::WriteError);
+                }
+                if self.read_byte().await? != 0 {
+                    return Err(Error::WriteError);
+                }
+            } else {
+                // TODO send ACMD23 _before_ write
+
+                self.cmd(write_multiple_blocks(block_address)).await?;
+                for block in data {
+                    self.wait_idle().await?;
+                    self.write_data(WRITE_MULTIPLE_TOKEN, &block[..]).await?;
+                }
+                // stop the write
+                self.wait_idle().await?;
+                self.spi
+                    .write(&[STOP_TRAN_TOKEN])
+                    .await
+                    .map_err(|_| Error::SpiError)?;
+            }
+            Ok(())
+        }
+        .await;
+        self.cs.set_high().map_err(|_| Error::ChipSelect)?;
+
+        r?;
+
+        Ok(())
+    }
+
+    pub async fn size(&mut self) -> Result<u64, Error> {
+        Ok(self.card.ok_or(Error::NotInitialized)?.size())
+    }
+
     async fn read_data(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         let r = with_timeout(self.delay.clone(), 1000, async {
             let mut byte = 0xFF;
@@ -249,6 +325,26 @@ where
         let calc_crc = crc16(buffer);
         if crc != calc_crc {
             return Err(Error::CrcMismatch(crc, calc_crc));
+        }
+
+        Ok(())
+    }
+
+    async fn write_data(&mut self, token: u8, buffer: &[u8]) -> Result<(), Error> {
+        self.spi
+            .write(&[token])
+            .await
+            .map_err(|_| Error::SpiError)?;
+        self.spi.write(buffer).await.map_err(|_| Error::SpiError)?;
+        let crc_bytes = crc16(buffer).to_be_bytes();
+        self.spi
+            .write(&crc_bytes)
+            .await
+            .map_err(|_| Error::SpiError)?;
+
+        let status = self.read_byte().await?;
+        if (status & DATA_RES_MASK) != DATA_RES_ACCEPTED {
+            return Err(Error::WriteError);
         }
 
         Ok(())
