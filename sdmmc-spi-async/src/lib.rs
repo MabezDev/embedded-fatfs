@@ -417,28 +417,28 @@ impl<SPI, CS, D, const SIZE: usize> block_device_driver::BlockDevice<SIZE> for S
 where
     SPI: embedded_hal_async::spi::SpiBus,
     CS: embedded_hal::digital::OutputPin,
-    D: embedded_hal_async::delay::DelayNs,
+    D: embedded_hal_async::delay::DelayNs + Clone,
 {
     type Error = Error;
 
     async fn read(
         &mut self,
-        _block_address: u32,
-        _data: &mut [[u8; SIZE]],
+        block_address: u32,
+        data: &mut [[u8; SIZE]],
     ) -> Result<(), Self::Error> {
-        todo!()
+        self.read(block_address, data).await
     }
 
     async fn write(
         &mut self,
-        _block_address: u32,
-        _data: &[[u8; SIZE]],
+        block_address: u32,
+        data: &[[u8; SIZE]],
     ) -> Result<(), Self::Error> {
-        todo!()
+        self.write(block_address, data).await
     }
 
     async fn size(&mut self) -> Result<u64, Self::Error> {
-        todo!()
+        self.size().await
     }
 }
 
