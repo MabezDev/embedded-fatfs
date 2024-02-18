@@ -96,6 +96,7 @@ async fn main(_spawner: Spawner) {
     loop {}
 }
 
+// We can remove this once https://github.com/embassy-rs/embassy/pull/2593 is released
 pub struct Delay(embassy_time::Delay);
 
 impl Clone for Delay {
