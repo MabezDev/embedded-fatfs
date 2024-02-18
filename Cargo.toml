@@ -2,4 +2,4 @@
 
 resolver = "2"
 members = ["block-device-driver", "block-device-adapters",  "embedded-fatfs", "sdmmc-spi-async"]
-exclude = ["examples/*"]
+exclude = ["examples/esp32c6"]

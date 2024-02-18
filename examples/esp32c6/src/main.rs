@@ -20,7 +20,6 @@ use esp32c6_hal::{
     FlashSafeDma, IO,
 };
 use esp_backtrace as _;
-use static_cell::make_static;
 
 #[main]
 async fn main(_spawner: Spawner) {

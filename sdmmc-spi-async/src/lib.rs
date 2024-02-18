@@ -3,7 +3,7 @@
 use core::fmt::Debug;
 use core::future::Future;
 use embassy_futures::select::{select, Either};
-use sdio_host::sd::{CardCapacity, SDStatus, CID, CSD, OCR, SD};
+use sdio_host::sd::{CardCapacity, CID, CSD, OCR, SD};
 use sdio_host::{common_cmd::*, sd_cmd::*};
 
 // MUST be the first module listed
@@ -39,10 +39,6 @@ pub struct Card {
     pub cid: CID<SD>,
     /// Card Specific Data
     pub csd: CSD<SD>,
-    // /// SD CARD Configuration Register
-    // pub scr: SCR,
-    /// SD Status
-    pub status: SDStatus,
 }
 
 impl Card {
@@ -260,7 +256,7 @@ where
                 self.cmd(write_single_block(block_address)).await?;
                 self.write_data(DATA_START_BLOCK, &data[0][..]).await?;
                 self.wait_idle().await?;
-                // check status // TODO do this properly
+                // check status, in SD SPI mode, the status is two bytes
                 if self.cmd(sd_status()).await? != 0 {
                     return Err(Error::WriteError);
                 }
