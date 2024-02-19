@@ -1,5 +1,5 @@
 [workspace]
 
 resolver = "2"
-members = ["block-device-driver", "block-device-adapters",  "embedded-fatfs", "sdmmc-spi-async"]
+members = ["block-device-driver", "block-device-adapters",  "embedded-fatfs", "sdspi"]
 exclude = ["examples/esp32c6"]

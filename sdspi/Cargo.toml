@@ -1,5 +1,5 @@
 [package]
-name = "sdmmc-spi-async"
+name = "sdspi"
 version = "0.1.0"
 edition = "2021"
 

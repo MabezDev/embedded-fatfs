@@ -1,3 +1,5 @@
+//! A crate for interfacing with SD cards over SPI.
+
 #![no_std]
 
 use core::fmt::Debug;
@@ -65,7 +67,7 @@ pub enum Error {
     WriteError,
 }
 
-pub struct SpiSdmmc<SPI, CS, D>
+pub struct SdSpi<SPI, CS, D>
 where
     SPI: embedded_hal_async::spi::SpiBus,
     CS: embedded_hal::digital::OutputPin,
@@ -77,7 +79,7 @@ where
     card: Option<Card>,
 }
 
-impl<SPI, CS, D> SpiSdmmc<SPI, CS, D>
+impl<SPI, CS, D> SdSpi<SPI, CS, D>
 where
     SPI: embedded_hal_async::spi::SpiBus,
     CS: embedded_hal::digital::OutputPin,
@@ -253,7 +255,7 @@ where
             } else {
                 // Try sending ACMD23 _before_ write.
                 // This will pre-erase blocks to improve write performance.
-                // We ignore the return value, because whether its accepted 
+                // We ignore the return value, because whether its accepted
                 // or not doesn't matter we will still proceed with the write
                 self.acmd(cmd::<R1>(0x17, data.len() as u32)).await?;
                 self.wait_idle().await?;
@@ -338,6 +340,10 @@ where
         Ok(())
     }
 
+    pub fn spi(&mut self) -> &mut SPI {
+        &mut self.spi
+    }
+
     async fn cmd<R: Resp>(&mut self, cmd: Cmd<R>) -> Result<u8, Error> {
         if cmd.cmd != idle().cmd {
             self.wait_idle().await?;
@@ -401,7 +407,7 @@ where
     }
 }
 
-impl<SPI, CS, D, const SIZE: usize> block_device_driver::BlockDevice<SIZE> for SpiSdmmc<SPI, CS, D>
+impl<SPI, CS, D, const SIZE: usize> block_device_driver::BlockDevice<SIZE> for SdSpi<SPI, CS, D>
 where
     SPI: embedded_hal_async::spi::SpiBus,
     CS: embedded_hal::digital::OutputPin,

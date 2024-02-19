@@ -45,7 +45,8 @@ async fn main(_spawner: Spawner) {
 
     let (mut descriptors, mut rx_descriptors) = dma_descriptors!(32000);
 
-    let spi = Spi::new(peripherals.SPI2, 100u32.kHz(), SpiMode::Mode0, &clocks)
+    // Initialize spi at the maxiumum SD initialization frequency of 400 khz
+    let spi = Spi::new(peripherals.SPI2, 400u32.kHz(), SpiMode::Mode0, &clocks)
         .with_sck(sclk)
         .with_miso(miso)
         .with_mosi(mosi)
@@ -59,9 +60,13 @@ async fn main(_spawner: Spawner) {
     let spi = FlashSafeDma::<_, 512>::new(spi);
 
     let mut sd =
-        sdmmc_spi_async::SpiSdmmc::new(spi, cs.into_push_pull_output(), Delay(embassy_time::Delay));
+        sdspi::SdSpi::new(spi, cs.into_push_pull_output(), Delay(embassy_time::Delay));
 
+    // Initialize the card
     sd.init().await.unwrap();
+
+    // Increase the speed up to the SD max of 25mhz
+    sd.spi().inner_mut().change_bus_frequency(25u32.MHz(), &clocks);
 
     log::info!("Initialization complete!");
 
