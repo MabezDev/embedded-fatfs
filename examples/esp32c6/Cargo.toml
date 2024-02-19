@@ -1,0 +1,26 @@
+[package]
+name = "esp32c6"
+version = "0.1.0"
+authors = ["Scott Mabin <scott@mabez.dev>"]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+esp32c6-hal = { version = "0.8.0", features = ["eh1", "async", "embassy", "embassy-time-systick", "embassy-executor-thread"] }
+esp-backtrace = { version = "0.11.0", features = ["esp32c6", "panic-handler", "exception-handler", "println"] }
+esp-println = { version = "0.9.0", features = ["esp32c6", "log"] }
+log = { version = "0.4.20" }
+embassy-time = "0.3"
+embassy-executor = { version = "0.5.0",  features = ["task-arena-size-8192"] }
+embedded-hal-async = "1"
+static_cell = { version = "1", features = ["nightly"] }
+embedded-io-async = "0.6"
+
+sdspi = { version = "0.1.0", path = "../../sdspi", features = ["log"] }
+block-device-adapters = { version = "0.1.0", path = "../../block-device-adapters" }
+embedded-fatfs = { version = "0.1.0", path = "../../embedded-fatfs", default-features = false, features = ["log"] }
+
+
+[patch.crates-io]
+esp32c6-hal = { git = "https://github.com/MabezDev/esp-hal/", branch = "async-stable" }
+esp-hal = { git = "https://github.com/MabezDev/esp-hal/", branch = "async-stable" }

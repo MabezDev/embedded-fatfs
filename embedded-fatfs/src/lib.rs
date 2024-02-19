@@ -14,7 +14,6 @@
 //!
 //! ```rust
 //! use tokio::fs;
-//! use async_iterator::Iterator;
 //! use embedded_io_async::Write;
 //!
 //! #[tokio::main]
@@ -58,7 +57,6 @@
     clippy::cast_possible_truncation,
     clippy::bool_to_int_with_if, // less readable
     clippy::uninlined_format_args, // not supported before Rust 1.58.0
-    async_fn_in_trait
 )]
 
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
@@ -68,8 +66,6 @@ extern crate alloc;
 mod fmt;
 
 mod boot_sector;
-#[cfg(feature = "device")]
-pub mod device;
 mod dir;
 mod dir_entry;
 mod error;

@@ -33,44 +33,50 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
+          args: -p embedded-fatfs
 
       - name: Run cargo build --examples
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --examples
+          args: -p embedded-fatfs --examples
 
       - name: Run cargo test
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --verbose --features device,dirty-file-panic # always supply dirty-file-panic to find internal flushing issues
+          args: --verbose --features dirty-file-panic # always supply dirty-file-panic to find internal flushing issues
         if: ${{ matrix.run_tests }}
 
       - name: Run cargo build - no_std
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --no-default-features
+          args: -p embedded-fatfs --no-default-features
 
       - name: Run cargo build - no_std, lfn
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --no-default-features --features lfn
+          args: -p embedded-fatfs --no-default-features --features lfn
 
       - name: Run cargo build - no_std, alloc, lfn, unicode
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --no-default-features --features alloc,lfn,unicode
-      - name: Run cargo build - no_std, alloc, lfn, unicode, device
+          args: -p embedded-fatfs --no-default-features --features alloc,lfn,unicode
+      - name: Run cargo build - no_std, alloc, lfn, unicode
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --no-default-features --features alloc,lfn,unicode,device
+          args: -p embedded-fatfs --no-default-features --features alloc,lfn,unicode
       - name: Run cargo build - Check defmt
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --no-default-features --features alloc,lfn,unicode,device,defmt
+          args: -p embedded-fatfs --no-default-features --features alloc,lfn,unicode,defmt
+      - name: Run cargo build - Check log
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: -p embedded-fatfs --no-default-features --features alloc,lfn,unicode,log
