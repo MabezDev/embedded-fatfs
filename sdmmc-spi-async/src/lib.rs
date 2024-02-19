@@ -173,19 +173,6 @@ where
             })
             .await??;
 
-            // TODO responds with illegal command, maybe it doesn't work in spi mode?
-            // trace!("send_relative_address");
-            // let r = self.cmd(send_relative_address()).await?;
-            // if r != R1_READY_STATE {
-            //     return Err(Error::RegisterError(r));
-            // }
-            // let mut buffer = [0xFFu8; 4];
-            // self.spi
-            //     .transfer_in_place(&mut buffer[..])
-            //     .await
-            //     .map_err(|_| Error::SpiError)?;
-            // card.rca = u32::from_be_bytes(buffer) >> 16;
-
             trace!("send_csd");
             let r = self.cmd(send_csd(card.rca as u16)).await?;
             if r != R1_READY_STATE {
@@ -264,7 +251,12 @@ where
                     return Err(Error::WriteError);
                 }
             } else {
-                // TODO send ACMD23 _before_ write
+                // Try sending ACMD23 _before_ write.
+                // This will pre-erase blocks to improve write performance.
+                // We ignore the return value, because whether its accepted 
+                // or not doesn't matter we will still proceed with the write
+                self.acmd(cmd::<R1>(0x17, data.len() as u32)).await?;
+                self.wait_idle().await?;
 
                 self.cmd(write_multiple_blocks(block_address)).await?;
                 for block in data {
