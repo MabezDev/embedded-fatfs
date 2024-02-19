@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use block_device_adapters::BufStream;
 use embassy_executor::Spawner;
@@ -10,7 +9,7 @@ use esp32c6_hal::{
     clock::ClockControl,
     dma::DmaPriority,
     dma_descriptors, embassy,
-    gdma::Gdma,
+    dma::Dma,
     peripherals::Peripherals,
     prelude::*,
     spi::{
@@ -41,7 +40,7 @@ async fn main(_spawner: Spawner) {
     let mosi = io.pins.gpio19;
     let cs = io.pins.gpio9;
 
-    let dma = Gdma::new(peripherals.DMA);
+    let dma = Dma::new(peripherals.DMA);
     let dma_channel = dma.channel0;
 
     let (mut descriptors, mut rx_descriptors) = dma_descriptors!(32000);
