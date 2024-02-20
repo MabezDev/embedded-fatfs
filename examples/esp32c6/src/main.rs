@@ -7,9 +7,9 @@ use embedded_fatfs::FsOptions;
 use embedded_io_async::{Read, Write};
 use esp32c6_hal::{
     clock::ClockControl,
+    dma::Dma,
     dma::DmaPriority,
     dma_descriptors, embassy,
-    dma::Dma,
     peripherals::Peripherals,
     prelude::*,
     spi::{
@@ -59,14 +59,15 @@ async fn main(_spawner: Spawner) {
 
     let spi = FlashSafeDma::<_, 512>::new(spi);
 
-    let mut sd =
-        sdspi::SdSpi::new(spi, cs.into_push_pull_output(), Delay(embassy_time::Delay));
+    let mut sd = sdspi::SdSpi::new(spi, cs.into_push_pull_output(), Delay(embassy_time::Delay));
 
     // Initialize the card
     sd.init().await.unwrap();
 
     // Increase the speed up to the SD max of 25mhz
-    sd.spi().inner_mut().change_bus_frequency(25u32.MHz(), &clocks);
+    sd.spi()
+        .inner_mut()
+        .change_bus_frequency(25u32.MHz(), &clocks);
 
     log::info!("Initialization complete!");
 
