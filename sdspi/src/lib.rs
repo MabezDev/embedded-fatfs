@@ -107,7 +107,6 @@ where
             with_timeout(self.delay.clone(), 1000, async {
                 loop {
                     let r = self.cmd(idle()).await?;
-                    trace!("Idle resp: {}", r);
                     if r == R1_IDLE_STATE {
                         return Ok(());
                     }
@@ -194,7 +193,7 @@ where
             card.cid = u128::from_be_bytes(cid).into();
 
             trace!("Card initialized: {:?}", card);
-            info!("Found card with size: {}bytes", card.size());
+            debug!("Found card with size: {}bytes", card.size());
 
             self.card = Some(card);
 

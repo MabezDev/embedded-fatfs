@@ -2,5 +2,13 @@
 name = "block-device-driver"
 version = "0.1.0"
 edition = "2021"
+readme = "README.md"
+rust-version = "1.75"
+keywords = ["block", "device", "no_std"]
+categories = ["filesystem"]
+license = "MIT"
+description = """
+Block device trait
+"""
 
 [dependencies]
