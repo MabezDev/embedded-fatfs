@@ -20,3 +20,23 @@ pub trait BlockDevice<const SIZE: usize> {
     // Report the size of the block device.
     async fn size(&mut self) -> Result<u64, Self::Error>;
 }
+
+impl<T: BlockDevice<SIZE>, const SIZE: usize> BlockDevice<SIZE> for &mut T {
+    type Error = T::Error;
+
+    async fn read(
+        &mut self,
+        block_address: u32,
+        data: &mut [[u8; SIZE]],
+    ) -> Result<(), Self::Error> {
+        (*self).read(block_address, data).await
+    }
+
+    async fn write(&mut self, block_address: u32, data: &[[u8; SIZE]]) -> Result<(), Self::Error> {
+        (*self).write(block_address, data).await
+    }
+
+    async fn size(&mut self) -> Result<u64, Self::Error> {
+        (*self).size().await
+    }
+}
