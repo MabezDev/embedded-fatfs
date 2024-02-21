@@ -1,5 +1,5 @@
-use block_device_driver::{AlignedBuffer, BlockDevice};
-use elain::{Align, Alignment};
+use aligned::Aligned;
+use block_device_driver::BlockDevice;
 use embedded_io_async::{ErrorKind, Read, Seek, SeekFrom, Write};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -38,28 +38,23 @@ impl<T: core::fmt::Debug> embedded_io_async::Error for BufStreamError<T> {
 ///
 /// [`BufStream<T, const SIZE: usize, const ALIGN: usize`](BufStream) implements the [`embedded_io_async`] traits, and implicitly
 /// handles the RMW (Read, Modify, Write) cycle for you.
-pub struct BufStream<T: BlockDevice<SIZE, ALIGN>, const SIZE: usize, const ALIGN: usize>
-where
-    Align<ALIGN>: Alignment,
-{
+pub struct BufStream<T: BlockDevice<SIZE>, const SIZE: usize> {
     inner: T,
-    buffer: AlignedBuffer<SIZE, ALIGN>,
+    buffer: Aligned<T::Align, [u8; SIZE]>,
     current_block: u32,
     current_offset: u64,
     dirty: bool,
 }
 
-impl<T: BlockDevice<SIZE, ALIGN>, const SIZE: usize, const ALIGN: usize> BufStream<T, SIZE, ALIGN>
-where
-    Align<ALIGN>: Alignment,
-{
+impl<T: BlockDevice<SIZE>, const SIZE: usize> BufStream<T, SIZE> {
+    const ALIGN: usize = core::mem::align_of::<Aligned<T::Align, [u8; SIZE]>>();
     /// Create a new [`BufStream`] around a hardware block device.
     pub fn new(inner: T) -> Self {
         Self {
             inner,
             current_block: u32::MAX,
             current_offset: 0,
-            buffer: AlignedBuffer::new(),
+            buffer: Aligned([0; SIZE]),
             dirty: false,
         }
     }
@@ -109,25 +104,17 @@ where
     }
 }
 
-impl<T: BlockDevice<SIZE, ALIGN>, const SIZE: usize, const ALIGN: usize>
-    embedded_io_async::ErrorType for BufStream<T, SIZE, ALIGN>
-where
-    Align<ALIGN>: Alignment,
-{
+impl<T: BlockDevice<SIZE>, const SIZE: usize> embedded_io_async::ErrorType for BufStream<T, SIZE> {
     type Error = BufStreamError<T::Error>;
 }
 
-impl<T: BlockDevice<SIZE, ALIGN>, const SIZE: usize, const ALIGN: usize> Read
-    for BufStream<T, SIZE, ALIGN>
-where
-    Align<ALIGN>: Alignment,
-{
+impl<T: BlockDevice<SIZE>, const SIZE: usize> Read for BufStream<T, SIZE> {
     async fn read(&mut self, mut buf: &mut [u8]) -> Result<usize, Self::Error> {
         let mut total = 0;
         let target = buf.len();
         loop {
             let bytes_read = if buf.len() % SIZE == 0
-                && buf.as_ptr().cast::<u8>() as usize % ALIGN == 0
+                && buf.as_ptr().cast::<u8>() as usize % Self::ALIGN == 0
                 && self.current_offset % SIZE as u64 == 0
             {
                 // If the provided buffer has a suitable length and alignment _and_ the read head is on a block boundary, use it directly
@@ -170,17 +157,13 @@ where
     }
 }
 
-impl<T: BlockDevice<SIZE, ALIGN>, const SIZE: usize, const ALIGN: usize> Write
-    for BufStream<T, SIZE, ALIGN>
-where
-    Align<ALIGN>: Alignment,
-{
+impl<T: BlockDevice<SIZE>, const SIZE: usize> Write for BufStream<T, SIZE> {
     async fn write(&mut self, mut buf: &[u8]) -> Result<usize, Self::Error> {
         let mut total = 0;
         let target = buf.len();
         loop {
             let bytes_written = if buf.len() % SIZE == 0
-                && buf.as_ptr().cast::<u8>() as usize % ALIGN == 0
+                && buf.as_ptr().cast::<u8>() as usize % Self::ALIGN == 0
                 && self.current_offset % SIZE as u64 == 0
             {
                 // If the provided buffer has a suitable length and alignment _and_ the write head is on a block boundary, use it directly
@@ -240,45 +223,37 @@ where
     }
 }
 
-fn slice_to_blocks<const SIZE: usize, const ALIGN: usize>(
-    slice: &[u8],
-) -> &[AlignedBuffer<SIZE, ALIGN>]
+fn slice_to_blocks<ALIGN, const SIZE: usize>(slice: &[u8]) -> &[Aligned<ALIGN, [u8; SIZE]>]
 where
-    Align<ALIGN>: Alignment,
+    ALIGN: aligned::Alignment,
 {
     assert!(slice.len() % SIZE == 0);
-    assert!(slice.as_ptr().cast::<u8>() as usize % ALIGN == 0);
     // Note unsafe: we check the buf has the correct SIZE before casting
     unsafe {
         core::slice::from_raw_parts(
-            slice.as_ptr() as *const AlignedBuffer<SIZE, ALIGN>,
+            slice.as_ptr() as *const Aligned<ALIGN, [u8; SIZE]>,
             slice.len() / SIZE,
         )
     }
 }
 
-fn slice_to_blocks_mut<const SIZE: usize, const ALIGN: usize>(
+fn slice_to_blocks_mut<ALIGN, const SIZE: usize>(
     slice: &mut [u8],
-) -> &mut [AlignedBuffer<SIZE, ALIGN>]
+) -> &mut [Aligned<ALIGN, [u8; SIZE]>]
 where
-    Align<ALIGN>: Alignment,
+    ALIGN: aligned::Alignment,
 {
     assert!(slice.len() % SIZE == 0);
-    assert!(slice.as_ptr().cast::<u8>() as usize % ALIGN == 0);
     // Note unsafe: we check the buf has the correct SIZE before casting
     unsafe {
         core::slice::from_raw_parts_mut(
-            slice.as_mut_ptr() as *mut AlignedBuffer<SIZE, ALIGN>,
+            slice.as_mut_ptr() as *mut Aligned<ALIGN, [u8; SIZE]>,
             slice.len() / SIZE,
         )
     }
 }
 
-impl<T: BlockDevice<SIZE, ALIGN>, const SIZE: usize, const ALIGN: usize> Seek
-    for BufStream<T, SIZE, ALIGN>
-where
-    Align<ALIGN>: Alignment,
-{
+impl<T: BlockDevice<SIZE>, const SIZE: usize> Seek for BufStream<T, SIZE> {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         self.current_offset = match pos {
             SeekFrom::Start(x) => x,

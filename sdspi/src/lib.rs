@@ -2,14 +2,13 @@
 
 #![no_std]
 
-use block_device_driver::AlignedBuffer;
+use aligned::Aligned;
 use core::fmt::Debug;
 use core::future::Future;
+use core::marker::PhantomData;
 use embassy_futures::select::{select, Either};
 use sdio_host::sd::{CardCapacity, CID, CSD, OCR, SD};
 use sdio_host::{common_cmd::*, sd_cmd::*};
-
-use elain::{Align, Alignment};
 
 // MUST be the first module listed
 mod fmt;
@@ -70,23 +69,26 @@ pub enum Error {
     WriteError,
 }
 
-pub struct SdSpi<SPI, CS, D>
+pub struct SdSpi<SPI, CS, D, ALIGN>
 where
     SPI: embedded_hal_async::spi::SpiBus,
     CS: embedded_hal::digital::OutputPin,
     D: embedded_hal_async::delay::DelayNs,
+    ALIGN: aligned::Alignment,
 {
     spi: SPI,
     cs: CS,
     delay: D,
     card: Option<Card>,
+    _align: PhantomData<ALIGN>,
 }
 
-impl<SPI, CS, D> SdSpi<SPI, CS, D>
+impl<SPI, CS, D, ALIGN> SdSpi<SPI, CS, D, ALIGN>
 where
     SPI: embedded_hal_async::spi::SpiBus,
     CS: embedded_hal::digital::OutputPin,
     D: embedded_hal_async::delay::DelayNs + Clone,
+    ALIGN: aligned::Alignment,
 {
     pub fn new(spi: SPI, cs: CS, delay: D) -> Self {
         Self {
@@ -94,6 +96,7 @@ where
             cs,
             delay,
             card: None,
+            _align: PhantomData,
         }
     }
 
@@ -209,14 +212,11 @@ where
         r
     }
 
-    pub async fn read<const SIZE: usize, const ALIGN: usize>(
+    pub async fn read<const SIZE: usize>(
         &mut self,
         block_address: u32,
-        data: &mut [AlignedBuffer<SIZE, ALIGN>],
-    ) -> Result<(), Error>
-    where
-        Align<ALIGN>: Alignment,
-    {
+        data: &mut [Aligned<ALIGN, [u8; SIZE]>],
+    ) -> Result<(), Error> {
         self.cs.set_low().map_err(|_| Error::ChipSelect)?;
         let r = async {
             if data.len() == 1 {
@@ -239,14 +239,11 @@ where
         Ok(())
     }
 
-    pub async fn write<const SIZE: usize, const ALIGN: usize>(
+    pub async fn write<const SIZE: usize>(
         &mut self,
         block_address: u32,
-        data: &[AlignedBuffer<SIZE, ALIGN>],
-    ) -> Result<(), Error>
-    where
-        Align<ALIGN>: Alignment,
-    {
+        data: &[Aligned<ALIGN, [u8; SIZE]>],
+    ) -> Result<(), Error> {
         self.cs.set_low().map_err(|_| Error::ChipSelect)?;
         let r = async {
             if data.len() == 1 {
@@ -415,20 +412,21 @@ where
     }
 }
 
-impl<SPI, CS, D, const SIZE: usize, const ALIGN: usize>
-    block_device_driver::BlockDevice<SIZE, ALIGN> for SdSpi<SPI, CS, D>
+impl<SPI, CS, D, ALIGN, const SIZE: usize> block_device_driver::BlockDevice<SIZE>
+    for SdSpi<SPI, CS, D, ALIGN>
 where
     SPI: embedded_hal_async::spi::SpiBus,
     CS: embedded_hal::digital::OutputPin,
     D: embedded_hal_async::delay::DelayNs + Clone,
-    Align<ALIGN>: Alignment,
+    ALIGN: aligned::Alignment,
 {
     type Error = Error;
+    type Align = ALIGN;
 
     async fn read(
         &mut self,
         block_address: u32,
-        data: &mut [AlignedBuffer<SIZE, ALIGN>],
+        data: &mut [Aligned<ALIGN, [u8; SIZE]>],
     ) -> Result<(), Self::Error> {
         self.read(block_address, data).await
     }
@@ -436,7 +434,7 @@ where
     async fn write(
         &mut self,
         block_address: u32,
-        data: &[AlignedBuffer<SIZE, ALIGN>],
+        data: &[Aligned<ALIGN, [u8; SIZE]>],
     ) -> Result<(), Self::Error> {
         self.write(block_address, data).await
     }
