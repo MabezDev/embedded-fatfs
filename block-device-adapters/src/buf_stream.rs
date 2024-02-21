@@ -266,6 +266,7 @@ impl<T: BlockDevice<SIZE>, const SIZE: usize> Seek for BufStream<T, SIZE> {
 
 #[cfg(test)]
 mod tests {
+    use aligned::A4;
     use embedded_io_async::ErrorType;
 
     use super::{BufStream, *};
@@ -294,14 +295,15 @@ mod tests {
         }
     }
 
-    impl<T: Read + Write + Seek> BlockDevice<512, 4> for TestBlockDevice<T> {
+    impl<T: Read + Write + Seek> BlockDevice<512> for TestBlockDevice<T> {
         type Error = T::Error;
+        type Align = aligned::A4;
 
         /// Read one or more blocks at the given block address.
         async fn read(
             &mut self,
             block_address: u32,
-            data: &mut [AlignedBuffer<512, 4>],
+            data: &mut [Aligned<Self::Align, [u8; 512]>],
         ) -> Result<(), Self::Error> {
             self.0
                 .seek(SeekFrom::Start((block_address * 512).into()))
@@ -316,7 +318,7 @@ mod tests {
         async fn write(
             &mut self,
             block_address: u32,
-            data: &[AlignedBuffer<512, 4>],
+            data: &[Aligned<Self::Align, [u8; 512]>],
         ) -> Result<(), Self::Error> {
             self.0
                 .seek(SeekFrom::Start((block_address * 512).into()))
@@ -337,7 +339,7 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = ("A".repeat(512) + "B".repeat(512).as_str()).into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+        let mut block: BufStream<_, 512> = BufStream::new(TestBlockDevice(
             embedded_io_adapters::tokio_1::FromTokio::new(cur),
         ));
 
@@ -366,7 +368,7 @@ mod tests {
             .repeat(16)
             .into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+        let mut block: BufStream<_, 512> = BufStream::new(TestBlockDevice(
             embedded_io_adapters::tokio_1::FromTokio::new(cur),
         ));
 
@@ -392,7 +394,7 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+        let mut block: BufStream<_, 512> = BufStream::new(TestBlockDevice(
             embedded_io_adapters::tokio_1::FromTokio::new(cur),
         ));
 
@@ -411,7 +413,7 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+        let mut block: BufStream<_, 512> = BufStream::new(TestBlockDevice(
             embedded_io_adapters::tokio_1::FromTokio::new(cur),
         ));
 
@@ -431,11 +433,11 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+        let mut block: BufStream<_, 512> = BufStream::new(TestBlockDevice(
             embedded_io_adapters::tokio_1::FromTokio::new(cur),
         ));
 
-        let mut aligned_buffer: AlignedBuffer<512, 4> = AlignedBuffer::new();
+        let mut aligned_buffer: Aligned<A4, [u8; 512]> = Aligned([0; 512]);
         let data_a = "A".repeat(512).into_bytes();
         aligned_buffer[..].copy_from_slice(&data_a[..]);
         block.seek(SeekFrom::Start(0)).await.unwrap();
@@ -457,11 +459,11 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+        let mut block: BufStream<_, 512> = BufStream::new(TestBlockDevice(
             embedded_io_adapters::tokio_1::FromTokio::new(cur),
         ));
 
-        let mut aligned_buffer: AlignedBuffer<2048, 4> = AlignedBuffer::new();
+        let mut aligned_buffer: Aligned<A4, [u8; 2048]> = Aligned([0; 2048]);
         let data_a = "A".repeat(512).into_bytes();
         aligned_buffer[..512].copy_from_slice(&data_a[..]);
         // seek away from aligned block address
@@ -484,11 +486,11 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = "A".repeat(2048).into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+        let mut block: BufStream<_, 512> = BufStream::new(TestBlockDevice(
             embedded_io_adapters::tokio_1::FromTokio::new(cur),
         ));
 
-        let mut aligned_buffer: AlignedBuffer<512, 4> = AlignedBuffer::new();
+        let mut aligned_buffer: Aligned<A4, [u8; 512]> = Aligned([0; 512]);
         block.seek(SeekFrom::Start(0)).await.unwrap();
         block.read_exact(&mut aligned_buffer[..]).await.unwrap();
 
@@ -508,11 +510,11 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = "A".repeat(2048).into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+        let mut block: BufStream<_, 512> = BufStream::new(TestBlockDevice(
             embedded_io_adapters::tokio_1::FromTokio::new(cur),
         ));
 
-        let mut aligned_buffer: AlignedBuffer<512, 4> = AlignedBuffer::new();
+        let mut aligned_buffer: Aligned<A4, [u8; 512]> = Aligned([0; 512]);
         // seek away from aligned block
         block.seek(SeekFrom::Start(3)).await.unwrap();
         // pass an aligned buffer with correct sizing
@@ -534,7 +536,7 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = "A".repeat(2048).into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+        let mut block: BufStream<_, 512> = BufStream::new(TestBlockDevice(
             embedded_io_adapters::tokio_1::FromTokio::new(cur),
         ));
 
