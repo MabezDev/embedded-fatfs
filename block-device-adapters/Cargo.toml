@@ -2,6 +2,14 @@
 name = "block-device-adapters"
 version = "0.1.0"
 edition = "2021"
+readme = "README.md"
+rust-version = "1.75"
+keywords = ["block", "device", "no_std", "partition"]
+categories = ["filesystem"]
+license = "MIT"
+description = """
+Block device adapters for managing byte level access and partitions
+"""
 
 [dependencies]
 elain = { version = "0.3" }
