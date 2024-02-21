@@ -1,4 +1,4 @@
-use block_device_driver::BlockDevice;
+use block_device_driver::{AlignedBuffer, BlockDevice};
 use elain::{Align, Alignment};
 use embedded_io_async::{ErrorKind, Read, Seek, SeekFrom, Write};
 
@@ -38,7 +38,7 @@ impl<T: core::fmt::Debug> embedded_io_async::Error for BufStreamError<T> {
 ///
 /// [`BufStream<T, const SIZE: usize, const ALIGN: usize`](BufStream) implements the [`embedded_io_async`] traits, and implicitly
 /// handles the RMW (Read, Modify, Write) cycle for you.
-pub struct BufStream<T: BlockDevice<SIZE>, const SIZE: usize, const ALIGN: usize>
+pub struct BufStream<T: BlockDevice<SIZE, ALIGN>, const SIZE: usize, const ALIGN: usize>
 where
     Align<ALIGN>: Alignment,
 {
@@ -49,7 +49,7 @@ where
     dirty: bool,
 }
 
-impl<T: BlockDevice<SIZE>, const SIZE: usize, const ALIGN: usize> BufStream<T, SIZE, ALIGN>
+impl<T: BlockDevice<SIZE, ALIGN>, const SIZE: usize, const ALIGN: usize> BufStream<T, SIZE, ALIGN>
 where
     Align<ALIGN>: Alignment,
 {
@@ -109,15 +109,16 @@ where
     }
 }
 
-impl<T: BlockDevice<SIZE>, const SIZE: usize, const ALIGN: usize> embedded_io_async::ErrorType
-    for BufStream<T, SIZE, ALIGN>
+impl<T: BlockDevice<SIZE, ALIGN>, const SIZE: usize, const ALIGN: usize>
+    embedded_io_async::ErrorType for BufStream<T, SIZE, ALIGN>
 where
     Align<ALIGN>: Alignment,
 {
     type Error = BufStreamError<T::Error>;
 }
 
-impl<T: BlockDevice<SIZE>, const SIZE: usize, const ALIGN: usize> Read for BufStream<T, SIZE, ALIGN>
+impl<T: BlockDevice<SIZE, ALIGN>, const SIZE: usize, const ALIGN: usize> Read
+    for BufStream<T, SIZE, ALIGN>
 where
     Align<ALIGN>: Alignment,
 {
@@ -126,7 +127,7 @@ where
         let target = buf.len();
         loop {
             let bytes_read = if buf.len() % SIZE == 0
-                && &buf[0] as *const _ as usize % ALIGN == 0
+                && buf.as_ptr().cast::<u8>() as usize % ALIGN == 0
                 && self.current_offset % SIZE as u64 == 0
             {
                 // If the provided buffer has a suitable length and alignment _and_ the read head is on a block boundary, use it directly
@@ -169,7 +170,7 @@ where
     }
 }
 
-impl<T: BlockDevice<SIZE>, const SIZE: usize, const ALIGN: usize> Write
+impl<T: BlockDevice<SIZE, ALIGN>, const SIZE: usize, const ALIGN: usize> Write
     for BufStream<T, SIZE, ALIGN>
 where
     Align<ALIGN>: Alignment,
@@ -179,7 +180,7 @@ where
         let target = buf.len();
         loop {
             let bytes_written = if buf.len() % SIZE == 0
-                && &buf[0] as *const _ as usize % ALIGN == 0
+                && buf.as_ptr().cast::<u8>() as usize % ALIGN == 0
                 && self.current_offset % SIZE as u64 == 0
             {
                 // If the provided buffer has a suitable length and alignment _and_ the write head is on a block boundary, use it directly
@@ -239,21 +240,42 @@ where
     }
 }
 
-fn slice_to_blocks<const SIZE: usize>(slice: &[u8]) -> &[[u8; SIZE]] {
+fn slice_to_blocks<const SIZE: usize, const ALIGN: usize>(
+    slice: &[u8],
+) -> &[AlignedBuffer<SIZE, ALIGN>]
+where
+    Align<ALIGN>: Alignment,
+{
     assert!(slice.len() % SIZE == 0);
-    // Note unsafe: we check the buf has the correct SIZE before casting
-    unsafe { core::slice::from_raw_parts(slice.as_ptr() as *const [u8; SIZE], slice.len() / SIZE) }
-}
-
-fn slice_to_blocks_mut<const SIZE: usize>(slice: &mut [u8]) -> &mut [[u8; SIZE]] {
-    assert!(slice.len() % SIZE == 0);
+    assert!(slice.as_ptr().cast::<u8>() as usize % ALIGN == 0);
     // Note unsafe: we check the buf has the correct SIZE before casting
     unsafe {
-        core::slice::from_raw_parts_mut(slice.as_mut_ptr() as *mut [u8; SIZE], slice.len() / SIZE)
+        core::slice::from_raw_parts(
+            slice.as_ptr() as *const AlignedBuffer<SIZE, ALIGN>,
+            slice.len() / SIZE,
+        )
     }
 }
 
-impl<T: BlockDevice<SIZE>, const SIZE: usize, const ALIGN: usize> Seek for BufStream<T, SIZE, ALIGN>
+fn slice_to_blocks_mut<const SIZE: usize, const ALIGN: usize>(
+    slice: &mut [u8],
+) -> &mut [AlignedBuffer<SIZE, ALIGN>]
+where
+    Align<ALIGN>: Alignment,
+{
+    assert!(slice.len() % SIZE == 0);
+    assert!(slice.as_ptr().cast::<u8>() as usize % ALIGN == 0);
+    // Note unsafe: we check the buf has the correct SIZE before casting
+    unsafe {
+        core::slice::from_raw_parts_mut(
+            slice.as_mut_ptr() as *mut AlignedBuffer<SIZE, ALIGN>,
+            slice.len() / SIZE,
+        )
+    }
+}
+
+impl<T: BlockDevice<SIZE, ALIGN>, const SIZE: usize, const ALIGN: usize> Seek
+    for BufStream<T, SIZE, ALIGN>
 where
     Align<ALIGN>: Alignment,
 {
@@ -264,47 +286,6 @@ where
             SeekFrom::Current(x) => (self.current_offset as i64 + x) as u64,
         };
         Ok(self.current_offset)
-    }
-}
-
-#[derive(Clone)]
-struct AlignedBuffer<const SIZE: usize, const ALIGN: usize>
-where
-    Align<ALIGN>: Alignment,
-{
-    _align: Align<ALIGN>,
-    buffer: [u8; SIZE],
-}
-
-impl<const SIZE: usize, const ALIGN: usize> AlignedBuffer<SIZE, ALIGN>
-where
-    Align<ALIGN>: Alignment,
-{
-    pub const fn new() -> Self {
-        Self {
-            _align: Align::NEW,
-            buffer: [0; SIZE],
-        }
-    }
-}
-
-impl<const SIZE: usize, const ALIGN: usize> core::ops::Deref for AlignedBuffer<SIZE, ALIGN>
-where
-    Align<ALIGN>: Alignment,
-{
-    type Target = [u8; SIZE];
-
-    fn deref(&self) -> &Self::Target {
-        &self.buffer
-    }
-}
-
-impl<const SIZE: usize, const ALIGN: usize> core::ops::DerefMut for AlignedBuffer<SIZE, ALIGN>
-where
-    Align<ALIGN>: Alignment,
-{
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.buffer
     }
 }
 
@@ -338,20 +319,20 @@ mod tests {
         }
     }
 
-    impl<T: Read + Write + Seek> BlockDevice<512> for TestBlockDevice<T> {
+    impl<T: Read + Write + Seek> BlockDevice<512, 4> for TestBlockDevice<T> {
         type Error = T::Error;
 
         /// Read one or more blocks at the given block address.
         async fn read(
             &mut self,
             block_address: u32,
-            data: &mut [[u8; 512]],
+            data: &mut [AlignedBuffer<512, 4>],
         ) -> Result<(), Self::Error> {
             self.0
                 .seek(SeekFrom::Start((block_address * 512).into()))
                 .await?;
             for b in data {
-                self.0.read(b).await?;
+                self.0.read(&mut b[..]).await?;
             }
             Ok(())
         }
@@ -360,13 +341,13 @@ mod tests {
         async fn write(
             &mut self,
             block_address: u32,
-            data: &[[u8; 512]],
+            data: &[AlignedBuffer<512, 4>],
         ) -> Result<(), Self::Error> {
             self.0
                 .seek(SeekFrom::Start((block_address * 512).into()))
                 .await?;
             for b in data {
-                self.0.write(b).await?;
+                self.0.write(&b[..]).await?;
             }
             Ok(())
         }

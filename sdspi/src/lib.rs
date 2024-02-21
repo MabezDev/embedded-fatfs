@@ -2,11 +2,14 @@
 
 #![no_std]
 
+use block_device_driver::AlignedBuffer;
 use core::fmt::Debug;
 use core::future::Future;
 use embassy_futures::select::{select, Either};
 use sdio_host::sd::{CardCapacity, CID, CSD, OCR, SD};
 use sdio_host::{common_cmd::*, sd_cmd::*};
+
+use elain::{Align, Alignment};
 
 // MUST be the first module listed
 mod fmt;
@@ -206,11 +209,14 @@ where
         r
     }
 
-    pub async fn read<const SIZE: usize>(
+    pub async fn read<const SIZE: usize, const ALIGN: usize>(
         &mut self,
         block_address: u32,
-        data: &mut [[u8; SIZE]],
-    ) -> Result<(), Error> {
+        data: &mut [AlignedBuffer<SIZE, ALIGN>],
+    ) -> Result<(), Error>
+    where
+        Align<ALIGN>: Alignment,
+    {
         self.cs.set_low().map_err(|_| Error::ChipSelect)?;
         let r = async {
             if data.len() == 1 {
@@ -233,11 +239,14 @@ where
         Ok(())
     }
 
-    pub async fn write<const SIZE: usize>(
+    pub async fn write<const SIZE: usize, const ALIGN: usize>(
         &mut self,
         block_address: u32,
-        data: &[[u8; SIZE]],
-    ) -> Result<(), Error> {
+        data: &[AlignedBuffer<SIZE, ALIGN>],
+    ) -> Result<(), Error>
+    where
+        Align<ALIGN>: Alignment,
+    {
         self.cs.set_low().map_err(|_| Error::ChipSelect)?;
         let r = async {
             if data.len() == 1 {
@@ -406,23 +415,29 @@ where
     }
 }
 
-impl<SPI, CS, D, const SIZE: usize> block_device_driver::BlockDevice<SIZE> for SdSpi<SPI, CS, D>
+impl<SPI, CS, D, const SIZE: usize, const ALIGN: usize>
+    block_device_driver::BlockDevice<SIZE, ALIGN> for SdSpi<SPI, CS, D>
 where
     SPI: embedded_hal_async::spi::SpiBus,
     CS: embedded_hal::digital::OutputPin,
     D: embedded_hal_async::delay::DelayNs + Clone,
+    Align<ALIGN>: Alignment,
 {
     type Error = Error;
 
     async fn read(
         &mut self,
         block_address: u32,
-        data: &mut [[u8; SIZE]],
+        data: &mut [AlignedBuffer<SIZE, ALIGN>],
     ) -> Result<(), Self::Error> {
         self.read(block_address, data).await
     }
 
-    async fn write(&mut self, block_address: u32, data: &[[u8; SIZE]]) -> Result<(), Self::Error> {
+    async fn write(
+        &mut self,
+        block_address: u32,
+        data: &[AlignedBuffer<SIZE, ALIGN>],
+    ) -> Result<(), Self::Error> {
         self.write(block_address, data).await
     }
 

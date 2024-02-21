@@ -12,3 +12,4 @@ Block device trait
 """
 
 [dependencies]
+elain = { version = "0.3" }
