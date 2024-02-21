@@ -14,6 +14,12 @@ use elain::{Align, Alignment};
 /// - `ALIGN`: The alignment of the block buffers, this defaults to 1 unless
 ///            specified in the trait impl. Alignment must be a power of two.
 ///
+/// The generic parameter `SIZE` on [BlockDevice] is the number of _bytes_ in a block 
+/// for this block device.
+///
+/// All addresses are zero indexed, and the unit is blocks. For example to read bytes
+/// from 1024 to 1536, the supplied block address would be 2.
+///
 /// This trait can be implemented multiple times to support various different block sizes.
 pub trait BlockDevice<const SIZE: usize, const ALIGN: usize = 1>
 where
@@ -36,7 +42,7 @@ where
         data: &[AlignedBuffer<SIZE, ALIGN>],
     ) -> Result<(), Self::Error>;
 
-    /// Report the size of the block device.
+    /// Report the size of the block device in bytes.
     async fn size(&mut self) -> Result<u64, Self::Error>;
 }
 
