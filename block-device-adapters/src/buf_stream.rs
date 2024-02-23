@@ -1,5 +1,5 @@
 use aligned::Aligned;
-use block_device_driver::BlockDevice;
+use block_device_driver::{slice_to_blocks, slice_to_blocks_mut, BlockDevice};
 use embedded_io_async::{ErrorKind, Read, Seek, SeekFrom, Write};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -220,36 +220,6 @@ impl<T: BlockDevice<SIZE>, const SIZE: usize> Write for BufStream<T, SIZE> {
     async fn flush(&mut self) -> Result<(), Self::Error> {
         self.flush().await?;
         Ok(())
-    }
-}
-
-fn slice_to_blocks<ALIGN, const SIZE: usize>(slice: &[u8]) -> &[Aligned<ALIGN, [u8; SIZE]>]
-where
-    ALIGN: aligned::Alignment,
-{
-    assert!(slice.len() % SIZE == 0);
-    // Note unsafe: we check the buf has the correct SIZE before casting
-    unsafe {
-        core::slice::from_raw_parts(
-            slice.as_ptr() as *const Aligned<ALIGN, [u8; SIZE]>,
-            slice.len() / SIZE,
-        )
-    }
-}
-
-fn slice_to_blocks_mut<ALIGN, const SIZE: usize>(
-    slice: &mut [u8],
-) -> &mut [Aligned<ALIGN, [u8; SIZE]>]
-where
-    ALIGN: aligned::Alignment,
-{
-    assert!(slice.len() % SIZE == 0);
-    // Note unsafe: we check the buf has the correct SIZE before casting
-    unsafe {
-        core::slice::from_raw_parts_mut(
-            slice.as_mut_ptr() as *mut Aligned<ALIGN, [u8; SIZE]>,
-            slice.len() / SIZE,
-        )
     }
 }
 
