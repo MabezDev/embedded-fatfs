@@ -53,8 +53,10 @@ async fn test_write_short_file(fs: FileSystem) {
     let mut file = root_dir.open_file("short.txt").await.expect("open file");
     file.truncate().await.unwrap();
     file.write_all(&TEST_STR.as_bytes()).await.unwrap();
+    file.flush().await.unwrap();
     file.seek(SeekFrom::Start(0)).await.unwrap();
     let buf = read_to_end(&mut file).await.unwrap();
+    file.flush().await.unwrap(); // update access time
     assert_eq!(TEST_STR, str::from_utf8(&buf).unwrap());
 }
 
@@ -80,6 +82,7 @@ async fn test_write_long_file(fs: FileSystem) {
     let test_str = TEST_STR.repeat(1000);
     file.write_all(&test_str.as_bytes()).await.unwrap();
     file.seek(SeekFrom::Start(0)).await.unwrap();
+    file.flush().await.unwrap();
     let mut buf = read_to_end(&mut file).await.unwrap();
     assert_eq!(test_str, str::from_utf8(&buf).unwrap());
     file.seek(SeekFrom::Start(1234)).await.unwrap();
@@ -87,6 +90,7 @@ async fn test_write_long_file(fs: FileSystem) {
     file.seek(SeekFrom::Start(0)).await.unwrap();
     buf.clear();
     buf = read_to_end(&mut file).await.unwrap();
+    file.flush().await.unwrap(); // update access time
     assert_eq!(&test_str[..1234], str::from_utf8(&buf).unwrap());
 }
 
@@ -396,6 +400,7 @@ async fn test_rename_file(fs: FileSystem) {
     assert_eq!(entries[2].len(), TEST_STR2.len() as u64);
     let mut file = parent_dir.open_file("new-long-name.txt").await.unwrap();
     let buf = read_to_end(&mut file).await.unwrap();
+    file.flush().await.unwrap();
     assert_eq!(str::from_utf8(&buf).unwrap(), TEST_STR2);
 
     parent_dir
@@ -412,6 +417,7 @@ async fn test_rename_file(fs: FileSystem) {
     assert_eq!(entries[4].len(), TEST_STR2.len() as u64);
     let mut file = root_dir.open_file("moved-file.txt").await.unwrap();
     let buf = read_to_end(&mut file).await.unwrap();
+    file.flush().await.unwrap();
     assert_eq!(str::from_utf8(&buf).unwrap(), TEST_STR2);
 
     assert!(root_dir.rename("moved-file.txt", &root_dir, "short.txt").await.is_err());

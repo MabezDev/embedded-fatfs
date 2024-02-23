@@ -737,6 +737,8 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC> DirIter<'a, IO, TP, OCC> {
         let mut begin_offset = offset;
         loop {
             let raw_entry = DirEntryData::deserialize(&mut self.stream).await?;
+            // access time has changed
+            self.stream.flush().await?;
             offset += u64::from(DIR_ENTRY_SIZE);
             // Check if this is end of dir
             if raw_entry.is_end() {
