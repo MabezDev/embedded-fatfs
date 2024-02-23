@@ -377,7 +377,7 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
                 let sfn_entry = e.create_sfn_entry(dot_sfn, FileAttributes::DIRECTORY, entry.first_cluster());
                 dir.write_entry(".", sfn_entry).await?;
                 let dotdot_sfn = ShortNameGenerator::generate_dotdot();
-                let sfn_entry = e.create_sfn_entry(dotdot_sfn, FileAttributes::DIRECTORY, self.stream.first_cluster());
+                let sfn_entry = e.create_sfn_entry(dotdot_sfn, FileAttributes::DIRECTORY, e.stream.first_cluster());
                 dir.write_entry("..", sfn_entry).await?;
                 Ok(dir)
             }
@@ -737,6 +737,8 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC> DirIter<'a, IO, TP, OCC> {
         let mut begin_offset = offset;
         loop {
             let raw_entry = DirEntryData::deserialize(&mut self.stream).await?;
+            // access time has changed
+            self.stream.flush().await?;
             offset += u64::from(DIR_ENTRY_SIZE);
             // Check if this is end of dir
             if raw_entry.is_end() {
