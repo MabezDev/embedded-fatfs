@@ -2,8 +2,10 @@
 
 #![no_std]
 
+use aligned::Aligned;
 use core::fmt::Debug;
 use core::future::Future;
+use core::marker::PhantomData;
 use embassy_futures::select::{select, Either};
 use sdio_host::sd::{CardCapacity, CID, CSD, OCR, SD};
 use sdio_host::{common_cmd::*, sd_cmd::*};
@@ -67,23 +69,26 @@ pub enum Error {
     WriteError,
 }
 
-pub struct SdSpi<SPI, CS, D>
+pub struct SdSpi<SPI, CS, D, ALIGN>
 where
     SPI: embedded_hal_async::spi::SpiBus,
     CS: embedded_hal::digital::OutputPin,
     D: embedded_hal_async::delay::DelayNs,
+    ALIGN: aligned::Alignment,
 {
     spi: SPI,
     cs: CS,
     delay: D,
     card: Option<Card>,
+    _align: PhantomData<ALIGN>,
 }
 
-impl<SPI, CS, D> SdSpi<SPI, CS, D>
+impl<SPI, CS, D, ALIGN> SdSpi<SPI, CS, D, ALIGN>
 where
     SPI: embedded_hal_async::spi::SpiBus,
     CS: embedded_hal::digital::OutputPin,
     D: embedded_hal_async::delay::DelayNs + Clone,
+    ALIGN: aligned::Alignment,
 {
     pub fn new(spi: SPI, cs: CS, delay: D) -> Self {
         Self {
@@ -91,6 +96,7 @@ where
             cs,
             delay,
             card: None,
+            _align: PhantomData,
         }
     }
 
@@ -209,7 +215,7 @@ where
     pub async fn read<const SIZE: usize>(
         &mut self,
         block_address: u32,
-        data: &mut [[u8; SIZE]],
+        data: &mut [Aligned<ALIGN, [u8; SIZE]>],
     ) -> Result<(), Error> {
         self.cs.set_low().map_err(|_| Error::ChipSelect)?;
         let r = async {
@@ -236,7 +242,7 @@ where
     pub async fn write<const SIZE: usize>(
         &mut self,
         block_address: u32,
-        data: &[[u8; SIZE]],
+        data: &[Aligned<ALIGN, [u8; SIZE]>],
     ) -> Result<(), Error> {
         self.cs.set_low().map_err(|_| Error::ChipSelect)?;
         let r = async {
@@ -406,23 +412,30 @@ where
     }
 }
 
-impl<SPI, CS, D, const SIZE: usize> block_device_driver::BlockDevice<SIZE> for SdSpi<SPI, CS, D>
+impl<SPI, CS, D, ALIGN, const SIZE: usize> block_device_driver::BlockDevice<SIZE>
+    for SdSpi<SPI, CS, D, ALIGN>
 where
     SPI: embedded_hal_async::spi::SpiBus,
     CS: embedded_hal::digital::OutputPin,
     D: embedded_hal_async::delay::DelayNs + Clone,
+    ALIGN: aligned::Alignment,
 {
     type Error = Error;
+    type Align = ALIGN;
 
     async fn read(
         &mut self,
         block_address: u32,
-        data: &mut [[u8; SIZE]],
+        data: &mut [Aligned<ALIGN, [u8; SIZE]>],
     ) -> Result<(), Self::Error> {
         self.read(block_address, data).await
     }
 
-    async fn write(&mut self, block_address: u32, data: &[[u8; SIZE]]) -> Result<(), Self::Error> {
+    async fn write(
+        &mut self,
+        block_address: u32,
+        data: &[Aligned<ALIGN, [u8; SIZE]>],
+    ) -> Result<(), Self::Error> {
         self.write(block_address, data).await
     }
 

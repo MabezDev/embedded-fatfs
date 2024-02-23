@@ -1,5 +1,5 @@
-use block_device_driver::BlockDevice;
-use elain::{Align, Alignment};
+use aligned::Aligned;
+use block_device_driver::{slice_to_blocks, slice_to_blocks_mut, BlockDevice};
 use embedded_io_async::{ErrorKind, Read, Seek, SeekFrom, Write};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -38,28 +38,23 @@ impl<T: core::fmt::Debug> embedded_io_async::Error for BufStreamError<T> {
 ///
 /// [`BufStream<T, const SIZE: usize, const ALIGN: usize`](BufStream) implements the [`embedded_io_async`] traits, and implicitly
 /// handles the RMW (Read, Modify, Write) cycle for you.
-pub struct BufStream<T: BlockDevice<SIZE>, const SIZE: usize, const ALIGN: usize>
-where
-    Align<ALIGN>: Alignment,
-{
+pub struct BufStream<T: BlockDevice<SIZE>, const SIZE: usize> {
     inner: T,
-    buffer: AlignedBuffer<SIZE, ALIGN>,
+    buffer: Aligned<T::Align, [u8; SIZE]>,
     current_block: u32,
     current_offset: u64,
     dirty: bool,
 }
 
-impl<T: BlockDevice<SIZE>, const SIZE: usize, const ALIGN: usize> BufStream<T, SIZE, ALIGN>
-where
-    Align<ALIGN>: Alignment,
-{
+impl<T: BlockDevice<SIZE>, const SIZE: usize> BufStream<T, SIZE> {
+    const ALIGN: usize = core::mem::align_of::<Aligned<T::Align, [u8; SIZE]>>();
     /// Create a new [`BufStream`] around a hardware block device.
     pub fn new(inner: T) -> Self {
         Self {
             inner,
             current_block: u32::MAX,
             current_offset: 0,
-            buffer: AlignedBuffer::new(),
+            buffer: Aligned([0; SIZE]),
             dirty: false,
         }
     }
@@ -109,24 +104,17 @@ where
     }
 }
 
-impl<T: BlockDevice<SIZE>, const SIZE: usize, const ALIGN: usize> embedded_io_async::ErrorType
-    for BufStream<T, SIZE, ALIGN>
-where
-    Align<ALIGN>: Alignment,
-{
+impl<T: BlockDevice<SIZE>, const SIZE: usize> embedded_io_async::ErrorType for BufStream<T, SIZE> {
     type Error = BufStreamError<T::Error>;
 }
 
-impl<T: BlockDevice<SIZE>, const SIZE: usize, const ALIGN: usize> Read for BufStream<T, SIZE, ALIGN>
-where
-    Align<ALIGN>: Alignment,
-{
+impl<T: BlockDevice<SIZE>, const SIZE: usize> Read for BufStream<T, SIZE> {
     async fn read(&mut self, mut buf: &mut [u8]) -> Result<usize, Self::Error> {
         let mut total = 0;
         let target = buf.len();
         loop {
             let bytes_read = if buf.len() % SIZE == 0
-                && &buf[0] as *const _ as usize % ALIGN == 0
+                && buf.as_ptr().cast::<u8>() as usize % Self::ALIGN == 0
                 && self.current_offset % SIZE as u64 == 0
             {
                 // If the provided buffer has a suitable length and alignment _and_ the read head is on a block boundary, use it directly
@@ -169,17 +157,13 @@ where
     }
 }
 
-impl<T: BlockDevice<SIZE>, const SIZE: usize, const ALIGN: usize> Write
-    for BufStream<T, SIZE, ALIGN>
-where
-    Align<ALIGN>: Alignment,
-{
+impl<T: BlockDevice<SIZE>, const SIZE: usize> Write for BufStream<T, SIZE> {
     async fn write(&mut self, mut buf: &[u8]) -> Result<usize, Self::Error> {
         let mut total = 0;
         let target = buf.len();
         loop {
             let bytes_written = if buf.len() % SIZE == 0
-                && &buf[0] as *const _ as usize % ALIGN == 0
+                && buf.as_ptr().cast::<u8>() as usize % Self::ALIGN == 0
                 && self.current_offset % SIZE as u64 == 0
             {
                 // If the provided buffer has a suitable length and alignment _and_ the write head is on a block boundary, use it directly
@@ -239,24 +223,7 @@ where
     }
 }
 
-fn slice_to_blocks<const SIZE: usize>(slice: &[u8]) -> &[[u8; SIZE]] {
-    assert!(slice.len() % SIZE == 0);
-    // Note unsafe: we check the buf has the correct SIZE before casting
-    unsafe { core::slice::from_raw_parts(slice.as_ptr() as *const [u8; SIZE], slice.len() / SIZE) }
-}
-
-fn slice_to_blocks_mut<const SIZE: usize>(slice: &mut [u8]) -> &mut [[u8; SIZE]] {
-    assert!(slice.len() % SIZE == 0);
-    // Note unsafe: we check the buf has the correct SIZE before casting
-    unsafe {
-        core::slice::from_raw_parts_mut(slice.as_mut_ptr() as *mut [u8; SIZE], slice.len() / SIZE)
-    }
-}
-
-impl<T: BlockDevice<SIZE>, const SIZE: usize, const ALIGN: usize> Seek for BufStream<T, SIZE, ALIGN>
-where
-    Align<ALIGN>: Alignment,
-{
+impl<T: BlockDevice<SIZE>, const SIZE: usize> Seek for BufStream<T, SIZE> {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         self.current_offset = match pos {
             SeekFrom::Start(x) => x,
@@ -267,49 +234,9 @@ where
     }
 }
 
-#[derive(Clone)]
-struct AlignedBuffer<const SIZE: usize, const ALIGN: usize>
-where
-    Align<ALIGN>: Alignment,
-{
-    _align: Align<ALIGN>,
-    buffer: [u8; SIZE],
-}
-
-impl<const SIZE: usize, const ALIGN: usize> AlignedBuffer<SIZE, ALIGN>
-where
-    Align<ALIGN>: Alignment,
-{
-    pub const fn new() -> Self {
-        Self {
-            _align: Align::NEW,
-            buffer: [0; SIZE],
-        }
-    }
-}
-
-impl<const SIZE: usize, const ALIGN: usize> core::ops::Deref for AlignedBuffer<SIZE, ALIGN>
-where
-    Align<ALIGN>: Alignment,
-{
-    type Target = [u8; SIZE];
-
-    fn deref(&self) -> &Self::Target {
-        &self.buffer
-    }
-}
-
-impl<const SIZE: usize, const ALIGN: usize> core::ops::DerefMut for AlignedBuffer<SIZE, ALIGN>
-where
-    Align<ALIGN>: Alignment,
-{
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.buffer
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use aligned::A4;
     use embedded_io_async::ErrorType;
 
     use super::{BufStream, *};
@@ -340,18 +267,19 @@ mod tests {
 
     impl<T: Read + Write + Seek> BlockDevice<512> for TestBlockDevice<T> {
         type Error = T::Error;
+        type Align = aligned::A4;
 
         /// Read one or more blocks at the given block address.
         async fn read(
             &mut self,
             block_address: u32,
-            data: &mut [[u8; 512]],
+            data: &mut [Aligned<Self::Align, [u8; 512]>],
         ) -> Result<(), Self::Error> {
             self.0
                 .seek(SeekFrom::Start((block_address * 512).into()))
                 .await?;
             for b in data {
-                self.0.read(b).await?;
+                self.0.read(&mut b[..]).await?;
             }
             Ok(())
         }
@@ -360,13 +288,13 @@ mod tests {
         async fn write(
             &mut self,
             block_address: u32,
-            data: &[[u8; 512]],
+            data: &[Aligned<Self::Align, [u8; 512]>],
         ) -> Result<(), Self::Error> {
             self.0
                 .seek(SeekFrom::Start((block_address * 512).into()))
                 .await?;
             for b in data {
-                self.0.write(b).await?;
+                self.0.write(&b[..]).await?;
             }
             Ok(())
         }
@@ -381,7 +309,7 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = ("A".repeat(512) + "B".repeat(512).as_str()).into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+        let mut block: BufStream<_, 512> = BufStream::new(TestBlockDevice(
             embedded_io_adapters::tokio_1::FromTokio::new(cur),
         ));
 
@@ -410,7 +338,7 @@ mod tests {
             .repeat(16)
             .into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+        let mut block: BufStream<_, 512> = BufStream::new(TestBlockDevice(
             embedded_io_adapters::tokio_1::FromTokio::new(cur),
         ));
 
@@ -436,7 +364,7 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+        let mut block: BufStream<_, 512> = BufStream::new(TestBlockDevice(
             embedded_io_adapters::tokio_1::FromTokio::new(cur),
         ));
 
@@ -455,7 +383,7 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+        let mut block: BufStream<_, 512> = BufStream::new(TestBlockDevice(
             embedded_io_adapters::tokio_1::FromTokio::new(cur),
         ));
 
@@ -475,11 +403,11 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+        let mut block: BufStream<_, 512> = BufStream::new(TestBlockDevice(
             embedded_io_adapters::tokio_1::FromTokio::new(cur),
         ));
 
-        let mut aligned_buffer: AlignedBuffer<512, 4> = AlignedBuffer::new();
+        let mut aligned_buffer: Aligned<A4, [u8; 512]> = Aligned([0; 512]);
         let data_a = "A".repeat(512).into_bytes();
         aligned_buffer[..].copy_from_slice(&data_a[..]);
         block.seek(SeekFrom::Start(0)).await.unwrap();
@@ -501,11 +429,11 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = vec![0; 2048];
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+        let mut block: BufStream<_, 512> = BufStream::new(TestBlockDevice(
             embedded_io_adapters::tokio_1::FromTokio::new(cur),
         ));
 
-        let mut aligned_buffer: AlignedBuffer<2048, 4> = AlignedBuffer::new();
+        let mut aligned_buffer: Aligned<A4, [u8; 2048]> = Aligned([0; 2048]);
         let data_a = "A".repeat(512).into_bytes();
         aligned_buffer[..512].copy_from_slice(&data_a[..]);
         // seek away from aligned block address
@@ -528,11 +456,11 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = "A".repeat(2048).into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+        let mut block: BufStream<_, 512> = BufStream::new(TestBlockDevice(
             embedded_io_adapters::tokio_1::FromTokio::new(cur),
         ));
 
-        let mut aligned_buffer: AlignedBuffer<512, 4> = AlignedBuffer::new();
+        let mut aligned_buffer: Aligned<A4, [u8; 512]> = Aligned([0; 512]);
         block.seek(SeekFrom::Start(0)).await.unwrap();
         block.read_exact(&mut aligned_buffer[..]).await.unwrap();
 
@@ -552,11 +480,11 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = "A".repeat(2048).into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+        let mut block: BufStream<_, 512> = BufStream::new(TestBlockDevice(
             embedded_io_adapters::tokio_1::FromTokio::new(cur),
         ));
 
-        let mut aligned_buffer: AlignedBuffer<512, 4> = AlignedBuffer::new();
+        let mut aligned_buffer: Aligned<A4, [u8; 512]> = Aligned([0; 512]);
         // seek away from aligned block
         block.seek(SeekFrom::Start(3)).await.unwrap();
         // pass an aligned buffer with correct sizing
@@ -578,7 +506,7 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
         let buf = "A".repeat(2048).into_bytes();
         let cur = std::io::Cursor::new(buf);
-        let mut block: BufStream<_, 512, 4> = BufStream::new(TestBlockDevice(
+        let mut block: BufStream<_, 512> = BufStream::new(TestBlockDevice(
             embedded_io_adapters::tokio_1::FromTokio::new(cur),
         ));
 

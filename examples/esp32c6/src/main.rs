@@ -59,7 +59,11 @@ async fn main(_spawner: Spawner) {
 
     let spi = FlashSafeDma::<_, 512>::new(spi);
 
-    let mut sd = sdspi::SdSpi::new(spi, cs.into_push_pull_output(), Delay(embassy_time::Delay));
+    let mut sd = sdspi::SdSpi::<_, _, _, aligned::A1>::new(
+        spi,
+        cs.into_push_pull_output(),
+        Delay(embassy_time::Delay),
+    );
 
     // Initialize the card
     sd.init().await.unwrap();
@@ -71,7 +75,7 @@ async fn main(_spawner: Spawner) {
 
     log::info!("Initialization complete!");
 
-    let inner = BufStream::<_, 512, 4>::new(sd);
+    let inner = BufStream::<_, 512>::new(sd);
 
     let fs = embedded_fatfs::FileSystem::new(inner, FsOptions::new())
         .await
