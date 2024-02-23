@@ -183,6 +183,7 @@ async fn test_create_file(fs: FileSystem) {
             .await
             .unwrap();
         file.write_all(&TEST_STR.as_bytes()).await.unwrap();
+        file.flush().await.unwrap();
     }
     // check for dir entry
     names = dir
