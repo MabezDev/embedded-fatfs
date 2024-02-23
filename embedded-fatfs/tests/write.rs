@@ -25,7 +25,7 @@ async fn call_with_tmp_img<Fut: Future, F: Fn(String) -> Fut>(f: F, filename: &s
     let tmp_path = format!("{}/{}-{}", TMP_DIR, test_seq, filename);
     fs::create_dir(TMP_DIR).await.ok();
     fs::copy(&img_path, &tmp_path).await.unwrap();
-    f(tmp_path.clone());
+    f(tmp_path.clone()).await;
     fs::remove_file(tmp_path).await.unwrap();
 }
 
