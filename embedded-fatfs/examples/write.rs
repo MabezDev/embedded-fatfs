@@ -16,12 +16,15 @@ async fn main() -> anyhow::Result<()> {
     let buf_stream = BufStream::new(img_file);
     let options = FsOptions::new().update_accessed_date(true);
     let fs = FileSystem::new(buf_stream, options).await?;
-    // create a dir
-    fs.root_dir().create_dir("foo").await?;
-    // Write a file
-    let mut file = fs.root_dir().create_file("hello.txt").await?;
-    file.write_all(b"Hello World!").await?;
-    file.flush().await?;
+    {
+        // create a dir
+        fs.root_dir().create_dir("foo").await?;
+        // Write a file
+        let mut file = fs.root_dir().create_file("hello.txt").await?;
+        file.write_all(b"Hello World!").await?;
+        file.flush().await?;
+    }
+    fs.unmount().await?;
 
     Ok(())
 }
