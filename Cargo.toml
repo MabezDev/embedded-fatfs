@@ -1,7 +1,8 @@
 [workspace]
 
 resolver = "2"
-members = ["block-device-driver", "block-device-adapters",  "embedded-fatfs", "sdspi"]
+members = ["embedded-fatfs", "block-device-driver", "block-device-adapters", "sdspi"]
+# exclude embedded examples because cargo doesn't do well with multi-arch workspaces
 exclude = ["examples/esp32c6"]
 
 [patch.crates-io]
