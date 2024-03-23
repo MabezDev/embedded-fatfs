@@ -69,31 +69,27 @@ pub enum Error {
     WriteError,
 }
 
-pub struct SdSpi<SPI, CS, D, ALIGN>
+pub struct SdSpi<SPI, D, ALIGN>
 where
-    SPI: embedded_hal_async::spi::SpiBus,
-    CS: embedded_hal::digital::OutputPin,
+    SPI: embedded_hal_async::spi::SpiDevice,
     D: embedded_hal_async::delay::DelayNs,
     ALIGN: aligned::Alignment,
 {
     spi: SPI,
-    cs: CS,
     delay: D,
     card: Option<Card>,
     _align: PhantomData<ALIGN>,
 }
 
-impl<SPI, CS, D, ALIGN> SdSpi<SPI, CS, D, ALIGN>
+impl<SPI, D, ALIGN> SdSpi<SPI, D, ALIGN>
 where
-    SPI: embedded_hal_async::spi::SpiBus,
-    CS: embedded_hal::digital::OutputPin,
+    SPI: embedded_hal_async::spi::SpiDevice,
     D: embedded_hal_async::delay::DelayNs + Clone,
     ALIGN: aligned::Alignment,
 {
-    pub fn new(spi: SPI, cs: CS, delay: D) -> Self {
+    pub fn new(spi: SPI, delay: D) -> Self {
         Self {
             spi,
-            cs,
             delay,
             card: None,
             _align: PhantomData,
@@ -101,14 +97,12 @@ where
     }
 
     pub async fn init(&mut self) -> Result<(), Error> {
-        self.cs.set_high().map_err(|_| Error::ChipSelect)?;
         let r = async {
             // Supply minimum of 74 clock cycles without CS asserted.
             self.spi
                 .write(&[0xFF; 10])
                 .await
                 .map_err(|_| Error::SpiError)?;
-            self.cs.set_low().map_err(|_| Error::ChipSelect)?;
 
             with_timeout(self.delay.clone(), 1000, async {
                 loop {
@@ -207,8 +201,6 @@ where
         }
         .await;
 
-        self.cs.set_high().map_err(|_| Error::ChipSelect)?;
-
         r
     }
 
@@ -217,7 +209,6 @@ where
         block_address: u32,
         data: &mut [Aligned<ALIGN, [u8; SIZE]>],
     ) -> Result<(), Error> {
-        self.cs.set_low().map_err(|_| Error::ChipSelect)?;
         let r = async {
             if data.len() == 1 {
                 self.cmd(read_single_block(block_address)).await?;
@@ -232,7 +223,6 @@ where
             Ok(())
         }
         .await;
-        self.cs.set_high().map_err(|_| Error::ChipSelect)?;
 
         r?;
 
@@ -244,7 +234,6 @@ where
         block_address: u32,
         data: &[Aligned<ALIGN, [u8; SIZE]>],
     ) -> Result<(), Error> {
-        self.cs.set_low().map_err(|_| Error::ChipSelect)?;
         let r = async {
             if data.len() == 1 {
                 self.cmd(write_single_block(block_address)).await?;
@@ -280,7 +269,6 @@ where
             Ok(())
         }
         .await;
-        self.cs.set_high().map_err(|_| Error::ChipSelect)?;
 
         r?;
 
@@ -412,11 +400,10 @@ where
     }
 }
 
-impl<SPI, CS, D, ALIGN, const SIZE: usize> block_device_driver::BlockDevice<SIZE>
-    for SdSpi<SPI, CS, D, ALIGN>
+impl<SPI, D, ALIGN, const SIZE: usize> block_device_driver::BlockDevice<SIZE>
+    for SdSpi<SPI, D, ALIGN>
 where
-    SPI: embedded_hal_async::spi::SpiBus,
-    CS: embedded_hal::digital::OutputPin,
+    SPI: embedded_hal_async::spi::SpiDevice,
     D: embedded_hal_async::delay::DelayNs + Clone,
     ALIGN: aligned::Alignment,
 {

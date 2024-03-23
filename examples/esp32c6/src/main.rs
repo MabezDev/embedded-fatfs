@@ -6,8 +6,10 @@ use block_device_adapters::BufStreamError;
 use embassy_executor::Spawner;
 use embedded_fatfs::FsOptions;
 use embedded_hal_async::delay::DelayNs;
+use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_io_async::{Read, Seek, Write};
-use esp32c6_hal::{
+use esp_backtrace as _;
+use esp_hal::{
     clock::ClockControl,
     dma::Dma,
     dma::DmaPriority,
@@ -20,7 +22,6 @@ use esp32c6_hal::{
     },
     FlashSafeDma, IO,
 };
-use esp_backtrace as _;
 use sdspi::SdSpi;
 
 #[main]
@@ -31,7 +32,7 @@ async fn main(_spawner: Spawner) {
 
     embassy::init(
         &clocks,
-        esp32c6_hal::systimer::SystemTimer::new(peripherals.SYSTIMER),
+        esp_hal::systimer::SystemTimer::new(peripherals.SYSTIMER),
     );
 
     esp_println::logger::init_logger_from_env();
@@ -62,14 +63,15 @@ async fn main(_spawner: Spawner) {
 
     let spi = FlashSafeDma::<_, 512>::new(spi);
 
-    let mut sd =
-        SdSpi::<_, _, _, aligned::A1>::new(spi, cs.into_push_pull_output(), embassy_time::Delay);
+    let spid = ExclusiveDevice::new(spi, cs.into_push_pull_output(), embassy_time::Delay);
+    let mut sd = SdSpi::<_, _, aligned::A1>::new(spid, embassy_time::Delay);
 
     loop {
         // Initialize the card
         if let Ok(_) = sd.init().await {
             // Increase the speed up to the SD max of 25mhz
             sd.spi()
+                .bus_mut()
                 .inner_mut()
                 .change_bus_frequency(25u32.MHz(), &clocks);
             log::info!("Initialization complete!");

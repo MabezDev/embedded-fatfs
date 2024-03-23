@@ -6,13 +6,14 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-esp32c6-hal = { version = "0.8.0", features = ["eh1", "async", "embassy", "embassy-time-systick", "embassy-executor-thread"] }
+esp-hal = { version = "0.16.1", features = ["esp32c6", "eh1", "async", "embassy", "embassy-time-systick-16mhz", "embassy-executor-thread"] }
 esp-backtrace = { version = "0.11.0", features = ["esp32c6", "panic-handler", "exception-handler", "println"] }
 esp-println = { version = "0.9.0", features = ["esp32c6", "log"] }
 log = { version = "0.4.20" }
 embassy-time = "0.3"
 embassy-executor = { version = "0.5.0",  features = ["task-arena-size-8192"] }
 embedded-hal-async = "1"
+embedded-hal-bus = { version = "0.1.0", features = ["async", "defmt-03"] }
 static_cell = { version = "1", features = ["nightly"] }
 embedded-io-async = "0.6"
 
@@ -23,10 +24,7 @@ embedded-fatfs = { version = "0.1.0", path = "../../embedded-fatfs", default-fea
 
 
 [patch.crates-io]
-# we can remove this once esp-hal is unified: https://github.com/esp-rs/esp-hal/pull/1196
-esp32c6-hal = { git = "https://github.com/MabezDev/esp-hal/", rev = "9a95c0aa880af7271f059797339bf890d2d59c64" }
-esp-hal = { git = "https://github.com/MabezDev/esp-hal/", rev = "9a95c0aa880af7271f059797339bf890d2d59c64" }
-aligned = { git = "https://github.com/MabezDev/aligned", branch = "a1" }
+aligned = { git = "https://github.com/rust-embedded-community/aligned" }
 # We can remove this once https://github.com/embassy-rs/embassy/pull/2593 is released
 embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "4657c105473122017a2df0fec6449ffb401927f4" }
 embassy-time-driver = { git = "https://github.com/embassy-rs/embassy", rev = "4657c105473122017a2df0fec6449ffb401927f4" }
