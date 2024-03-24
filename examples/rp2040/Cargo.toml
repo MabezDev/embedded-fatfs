@@ -1,7 +1,7 @@
 [package]
-name = "esp32c6"
+name = "embedded-fatfs-example"
 version = "0.1.0"
-authors = ["Scott Mabin <scott@mabez.dev>"]
+authors = ["Scott Mabin <scott@mabez.dev>", "Caleb Jamison <caleb@cbjamo.com>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
@@ -34,10 +34,10 @@ embedded-fatfs = { version = "0.1.0", path = "../../embedded-fatfs", default-fea
 [patch.crates-io]
 aligned = { git = "https://github.com/rust-embedded-community/aligned" }
 # we can remove this once embassy #2732 is released: https://github.com/embassy-rs/embassy/pull/2732
-embassy-sync = {git = "https://github.com/cbjamo/embassy", branch = "sharedbus_setconfig" }
-embassy-executor = {git = "https://github.com/cbjamo/embassy", branch = "sharedbus_setconfig" }
-embassy-time = {git = "https://github.com/cbjamo/embassy", branch = "sharedbus_setconfig" }
-embassy-rp = {git = "https://github.com/cbjamo/embassy", branch = "sharedbus_setconfig" }
-embassy-futures = {git = "https://github.com/cbjamo/embassy", branch = "sharedbus_setconfig" }
-embassy-embedded-hal = {git = "https://github.com/cbjamo/embassy", branch = "sharedbus_setconfig" }
-embassy-boot-rp = {git = "https://github.com/cbjamo/embassy", branch = "sharedbus_setconfig" }
+embassy-sync = {git = "https://github.com/embassy-rs/embassy", rev = "a009275875228a3f9c59dcad114ef378b3f6f2ea" }
+embassy-executor = {git = "https://github.com/embassy-rs/embassy", rev = "a009275875228a3f9c59dcad114ef378b3f6f2ea" }
+embassy-time = {git = "https://github.com/embassy-rs/embassy", rev = "a009275875228a3f9c59dcad114ef378b3f6f2ea" }
+embassy-rp = {git = "https://github.com/embassy-rs/embassy", rev = "a009275875228a3f9c59dcad114ef378b3f6f2ea" }
+embassy-futures = {git = "https://github.com/embassy-rs/embassy", rev = "a009275875228a3f9c59dcad114ef378b3f6f2ea" }
+embassy-embedded-hal = {git = "https://github.com/embassy-rs/embassy", rev = "a009275875228a3f9c59dcad114ef378b3f6f2ea" }
+embassy-boot-rp = {git = "https://github.com/embassy-rs/embassy", rev = "a009275875228a3f9c59dcad114ef378b3f6f2ea" }
