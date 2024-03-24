@@ -1,0 +1,41 @@
+[package]
+name = "embedded-fatfs-example"
+version = "0.1.0"
+authors = ["Scott Mabin <scott@mabez.dev>", "Caleb Jamison <caleb@cbjamo.com>"]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+embassy-embedded-hal = { version = "0.1.0", features = ["defmt"] }
+embassy-sync = { version = "0.5.0", features = ["defmt"] }
+embassy-executor = { version = "0.5.0", features = ["task-arena-size-32768", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
+embassy-time = { version = "0.3.0", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-rp = { version = "0.1.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl"] }
+embassy-usb = { version = "0.1.0", features = ["defmt"] }
+embassy-net = { version = "0.4.0", features = ["defmt", "tcp", "udp", "dhcpv4", "medium-ethernet"] }
+embassy-futures = { version = "0.1.0" }
+
+cortex-m = { version = "0.7.6", features = ["inline-asm"] }
+cortex-m-rt = "0.7.0"
+panic-probe = { version = "0.3", features = ["print-defmt"] }
+defmt = "0.3"
+defmt-rtt = "0.4"
+static_cell = { version = "1", features = ["nightly"] }
+embedded-hal-async = "1"
+embedded-io-async = "0.6"
+heapless = {version = "0.8", features = ["defmt-03"]}
+
+sdspi = { version = "0.1.0", path = "../../sdspi", features = ["defmt"] }
+aligned = "0.4.2"
+block-device-adapters = { version = "0.1.0", path = "../../block-device-adapters" }
+embedded-fatfs = { version = "0.1.0", path = "../../embedded-fatfs", default-features = false, features = ["defmt", "lfn"] }
+
+
+[patch.crates-io]
+# we can remove this once embassy #2732 is released: https://github.com/embassy-rs/embassy/pull/2732
+embassy-sync = {git = "https://github.com/embassy-rs/embassy", rev = "a009275875228a3f9c59dcad114ef378b3f6f2ea" }
+embassy-executor = {git = "https://github.com/embassy-rs/embassy", rev = "a009275875228a3f9c59dcad114ef378b3f6f2ea" }
+embassy-time = {git = "https://github.com/embassy-rs/embassy", rev = "a009275875228a3f9c59dcad114ef378b3f6f2ea" }
+embassy-rp = {git = "https://github.com/embassy-rs/embassy", rev = "a009275875228a3f9c59dcad114ef378b3f6f2ea" }
+embassy-futures = {git = "https://github.com/embassy-rs/embassy", rev = "a009275875228a3f9c59dcad114ef378b3f6f2ea" }
+embassy-embedded-hal = {git = "https://github.com/embassy-rs/embassy", rev = "a009275875228a3f9c59dcad114ef378b3f6f2ea" }
