@@ -26,13 +26,12 @@ embedded-io-async = "0.6"
 heapless = {version = "0.8", features = ["defmt-03"]}
 
 sdspi = { version = "0.1.0", path = "../../sdspi", features = ["defmt"] }
-aligned = "0.4.1"
+aligned = "0.4.2"
 block-device-adapters = { version = "0.1.0", path = "../../block-device-adapters" }
 embedded-fatfs = { version = "0.1.0", path = "../../embedded-fatfs", default-features = false, features = ["defmt", "lfn"] }
 
 
 [patch.crates-io]
-aligned = { git = "https://github.com/rust-embedded-community/aligned" }
 # we can remove this once embassy #2732 is released: https://github.com/embassy-rs/embassy/pull/2732
 embassy-sync = {git = "https://github.com/embassy-rs/embassy", rev = "a009275875228a3f9c59dcad114ef378b3f6f2ea" }
 embassy-executor = {git = "https://github.com/embassy-rs/embassy", rev = "a009275875228a3f9c59dcad114ef378b3f6f2ea" }
@@ -40,4 +39,3 @@ embassy-time = {git = "https://github.com/embassy-rs/embassy", rev = "a009275875
 embassy-rp = {git = "https://github.com/embassy-rs/embassy", rev = "a009275875228a3f9c59dcad114ef378b3f6f2ea" }
 embassy-futures = {git = "https://github.com/embassy-rs/embassy", rev = "a009275875228a3f9c59dcad114ef378b3f6f2ea" }
 embassy-embedded-hal = {git = "https://github.com/embassy-rs/embassy", rev = "a009275875228a3f9c59dcad114ef378b3f6f2ea" }
-embassy-boot-rp = {git = "https://github.com/embassy-rs/embassy", rev = "a009275875228a3f9c59dcad114ef378b3f6f2ea" }

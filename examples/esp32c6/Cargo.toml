@@ -6,7 +6,7 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-esp-hal = { version = "0.16.1", features = ["esp32c6", "eh1", "async", "embassy", "embassy-time-systick-16mhz", "embassy-executor-thread"] }
+esp-hal = { version = "0.16.1", features = ["esp32c6", "eh1", "async", "embassy", "embassy-time-systick-16mhz", "embassy-executor-thread", "embassy-integrated-timers"] }
 esp-backtrace = { version = "0.11.0", features = ["esp32c6", "panic-handler", "exception-handler", "println"] }
 esp-println = { version = "0.9.0", features = ["esp32c6", "log"] }
 log = { version = "0.4.20" }
@@ -18,13 +18,12 @@ static_cell = { version = "1", features = ["nightly"] }
 embedded-io-async = "0.6"
 
 sdspi = { version = "0.1.0", path = "../../sdspi", features = ["log"] }
-aligned = "0.4.1"
+aligned = "0.4.2"
 block-device-adapters = { version = "0.1.0", path = "../../block-device-adapters" }
 embedded-fatfs = { version = "0.1.0", path = "../../embedded-fatfs", default-features = false, features = ["log"] }
 
 
 [patch.crates-io]
-aligned = { git = "https://github.com/rust-embedded-community/aligned" }
 # We can remove this once https://github.com/embassy-rs/embassy/pull/2593 is released
 embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "4657c105473122017a2df0fec6449ffb401927f4" }
 embassy-time-driver = { git = "https://github.com/embassy-rs/embassy", rev = "4657c105473122017a2df0fec6449ffb401927f4" }

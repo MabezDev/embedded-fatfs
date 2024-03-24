@@ -13,7 +13,6 @@ use embassy_rp::{
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use embedded_fatfs::FsOptions;
 use embedded_hal_async::delay::DelayNs;
-use embedded_io_async::{Read, Seek, Write};
 use heapless::{String, Vec};
 use sdspi::SdSpi;
 use static_cell::StaticCell;
