@@ -1,11 +1,8 @@
 #![allow(deprecated)]
-
-#[cfg(feature = "chrono")]
-use core::convert::TryFrom;
 use core::fmt::Debug;
 
 #[cfg(feature = "chrono")]
-use chrono::{self, Datelike, Local, TimeZone, Timelike};
+use chrono::{Datelike, Local, TimeZone, Timelike};
 
 const MIN_YEAR: u16 = 1980;
 const MAX_YEAR: u16 = 2107;
