@@ -9,7 +9,7 @@ embedded-hal = "1"
 sdio-host = "0.9.0"
 block-device-driver = { version = "0.1.0", path = "../block-device-driver" }
 embassy-futures = "0.1.1"
-aligned = "0.4.1"
+aligned = "0.4.2"
 
 log = { version = "0.4", optional = true }
 defmt = { version = "0.3", optional = true }

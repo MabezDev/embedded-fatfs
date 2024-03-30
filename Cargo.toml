@@ -3,7 +3,4 @@
 resolver = "2"
 members = ["embedded-fatfs", "block-device-driver", "block-device-adapters", "sdspi"]
 # exclude embedded examples because cargo doesn't do well with multi-arch workspaces
-exclude = ["examples/esp32c6"]
-
-[patch.crates-io]
-aligned = { git = "https://github.com/MabezDev/aligned", branch = "a1" }
+exclude = ["examples/esp32c6", "examples/rp2040"]

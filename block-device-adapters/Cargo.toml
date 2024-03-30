@@ -12,7 +12,7 @@ Block device adapters for managing byte level access and partitions
 """
 
 [dependencies]
-aligned = "0.4.1"
+aligned = "0.4.2"
 embedded-io-async = "0.6.1"
 block-device-driver = { version = "0.1", path = "../block-device-driver" }
 
