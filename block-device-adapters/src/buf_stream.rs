@@ -239,7 +239,7 @@ mod tests {
     use aligned::A4;
     use embedded_io_async::ErrorType;
 
-    use super::{BufStream, *};
+    use super::*;
 
     struct TestBlockDevice<T: Read + Write + Seek>(T);
 

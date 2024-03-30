@@ -2,7 +2,6 @@ use core::borrow::BorrowMut;
 use core::cell::{Cell, RefCell};
 use core::char;
 use core::cmp;
-use core::convert::TryFrom;
 use core::fmt::Debug;
 use core::marker::PhantomData;
 use core::u32;

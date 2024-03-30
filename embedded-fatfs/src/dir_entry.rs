@@ -1,6 +1,5 @@
 use bitflags::bitflags;
 use core::char;
-use core::convert::TryInto;
 use core::fmt;
 #[cfg(not(feature = "unicode"))]
 use core::iter;
