@@ -18,9 +18,10 @@ use aligned::Aligned;
 /// for this block device.
 ///
 /// All addresses are zero indexed, and the unit is blocks. For example to read bytes
-/// from 1024 to 1536, the supplied block address would be 2.
+/// from 1024 to 1536 on a 512 byte block device, the supplied block address would be 2.
 ///
-/// <div class="warning">Alignment of the buffer <b>must</b> be multiple of SIZE.</div>
+/// <div class="warning"><b>NOTE to implementors</b>: Alignment of the buffer <b>must</b> be multiple of SIZE to avoid
+/// padding bytes when casting between blocks and slices.</div>
 ///
 /// This trait can be implemented multiple times to support various different block sizes.
 pub trait BlockDevice<const SIZE: usize> {
