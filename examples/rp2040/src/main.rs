@@ -14,7 +14,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use embedded_fatfs::FsOptions;
 use embedded_hal_async::delay::DelayNs;
 use heapless::{String, Vec};
-use sdspi::SdSpi;
+use sdspi::{sd_init, SdSpi};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -34,7 +34,7 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     config.frequency = 400_000;
 
-    let spi = Spi::new(
+    let mut spi = Spi::new(
         p.SPI0,
         clk,
         mosi,
@@ -43,6 +43,19 @@ async fn main(_spawner: Spawner) {
         p.DMA_CH1,
         config.clone(),
     );
+
+    // Sd cards need to be clocked with a at least 74 cycles on their spi clock without the cs enabled,
+    // sd_init is a helper function that does this for us.
+    loop {
+        match sd_init(&mut spi).await {
+            Ok(_) => break,
+            Err(e) => {
+                defmt::warn!("Sd init error: {}", e);
+                embassy_time::Timer::after_millis(10).await;
+            }
+        }
+    }
+
     let spi_bus = SPI_BUS.init(Mutex::new(spi));
 
     let spid = SpiDeviceWithConfig::new(spi_bus, cs, config);
