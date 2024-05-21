@@ -22,7 +22,7 @@ use esp_hal::{
     },
     FlashSafeDma, IO,
 };
-use sdspi::SdSpi;
+use sdspi::{self, SdSpi};
 
 #[main]
 async fn main(_spawner: Spawner) {
@@ -61,7 +61,19 @@ async fn main(_spawner: Spawner) {
             DmaPriority::Priority0,
         ));
 
-    let spi = FlashSafeDma::<_, 512>::new(spi);
+    let mut spi = FlashSafeDma::<_, 512>::new(spi);
+
+    // Sd cards need to be clocked with a at least 74 cycles on their spi clock without the cs enabled,
+    // sd_init is a helper function that does this for us.
+    loop {
+        match sdspi::sd_init(&mut spi).await {
+            Ok(_) => break,
+            Err(e) => {
+                log::warn!("Sd init error: {:?}", e);
+                embassy_time::Timer::after_millis(10).await;
+            }
+        }
+    }
 
     let spid = ExclusiveDevice::new(spi, cs.into_push_pull_output(), embassy_time::Delay);
     let mut sd = SdSpi::<_, _, aligned::A1>::new(spid, embassy_time::Delay);
