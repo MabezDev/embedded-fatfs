@@ -38,29 +38,29 @@ impl<T: core::fmt::Debug> embedded_io_async::Error for BufStreamError<T> {
 ///
 /// [`BufStream<T, const SIZE: usize, const ALIGN: usize`](BufStream) implements the [`embedded_io_async`] traits, and implicitly
 /// handles the RMW (Read, Modify, Write) cycle for you.
-pub struct BufStream<T: BlockDevice<SIZE>, const SIZE: usize> {
+pub struct BufStream<'a, T: BlockDevice<SIZE>, const SIZE: usize> {
     inner: T,
-    buffer: Aligned<T::Align, [u8; SIZE]>,
+    buffer: Aligned<T::Align, &'a mut [u8]>,
     current_block: u32,
     current_offset: u64,
     dirty: bool,
 }
 
-impl<T: BlockDevice<SIZE>, const SIZE: usize> BufStream<T, SIZE> {
+impl<'a, T: BlockDevice<SIZE>, const SIZE: usize> BufStream<'a, T, SIZE> {
     const ALIGN: usize = core::mem::align_of::<Aligned<T::Align, [u8; SIZE]>>();
     /// Create a new [`BufStream`] around a hardware block device.
-    pub fn new(inner: T) -> Self {
-        Self {
-            inner,
-            current_block: u32::MAX,
-            current_offset: 0,
-            buffer: Aligned([0; SIZE]),
-            dirty: false,
-        }
-    }
+    // pub fn new(inner: T) -> Self {
+    //     Self {
+    //         inner,
+    //         current_block: u32::MAX,
+    //         current_offset: 0,
+    //         buffer: Aligned([0; SIZE]),
+    //         dirty: false,
+    //     }
+    // }
 
     /// Create a new [`BufStream`] around a hardware block device with external buffer.
-    pub fn new_with_buffer(inner: T, buf: [u8; SIZE]) -> Self {
+    pub fn new_with_buffer(inner: T, buf: &'a mut [u8]) -> Self {
         Self {
             inner,
             current_block: u32::MAX,
@@ -115,11 +115,11 @@ impl<T: BlockDevice<SIZE>, const SIZE: usize> BufStream<T, SIZE> {
     }
 }
 
-impl<T: BlockDevice<SIZE>, const SIZE: usize> embedded_io_async::ErrorType for BufStream<T, SIZE> {
+impl<'a, T: BlockDevice<SIZE>, const SIZE: usize> embedded_io_async::ErrorType for BufStream<'a, T, SIZE> {
     type Error = BufStreamError<T::Error>;
 }
 
-impl<T: BlockDevice<SIZE>, const SIZE: usize> Read for BufStream<T, SIZE> {
+impl<'a, T: BlockDevice<SIZE>, const SIZE: usize> Read for BufStream<'a, T, SIZE> {
     async fn read(&mut self, mut buf: &mut [u8]) -> Result<usize, Self::Error> {
         let mut total = 0;
         let target = buf.len();
@@ -168,7 +168,7 @@ impl<T: BlockDevice<SIZE>, const SIZE: usize> Read for BufStream<T, SIZE> {
     }
 }
 
-impl<T: BlockDevice<SIZE>, const SIZE: usize> Write for BufStream<T, SIZE> {
+impl<'a, T: BlockDevice<SIZE>, const SIZE: usize> Write for BufStream<'a, T, SIZE> {
     async fn write(&mut self, mut buf: &[u8]) -> Result<usize, Self::Error> {
         let mut total = 0;
         let target = buf.len();
@@ -234,7 +234,7 @@ impl<T: BlockDevice<SIZE>, const SIZE: usize> Write for BufStream<T, SIZE> {
     }
 }
 
-impl<T: BlockDevice<SIZE>, const SIZE: usize> Seek for BufStream<T, SIZE> {
+impl<'a, T: BlockDevice<SIZE>, const SIZE: usize> Seek for BufStream<'a, T, SIZE> {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         self.current_offset = match pos {
             SeekFrom::Start(x) => x,
