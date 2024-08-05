@@ -59,6 +59,17 @@ impl<T: BlockDevice<SIZE>, const SIZE: usize> BufStream<T, SIZE> {
         }
     }
 
+    /// Create a new [`BufStream`] around a hardware block device with external buffer.
+    pub fn new_with_buffer(inner: T, buf: [u8; SIZE]) -> Self {
+        Self {
+            inner,
+            current_block: u32::MAX,
+            current_offset: 0,
+            buffer: Aligned(buf),
+            dirty: false,
+        }
+    }
+
     /// Returns inner object.
     pub fn into_inner(self) -> T {
         self.inner
