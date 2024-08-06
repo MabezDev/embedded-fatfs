@@ -69,7 +69,7 @@ pub enum Error {
     WriteError,
 }
 
-pub struct SdSpi<SPI, D, ALIGN>
+pub struct SdSpi<'a, SPI, D, ALIGN>
 where
     SPI: embedded_hal_async::spi::SpiDevice,
     D: embedded_hal_async::delay::DelayNs,
@@ -78,29 +78,44 @@ where
     spi: SPI,
     delay: D,
     card: Option<Card>,
+    buf: &'a mut [u8],
     _align: PhantomData<ALIGN>,
 }
 
-impl<SPI, D, ALIGN> SdSpi<SPI, D, ALIGN>
+impl<'a, SPI, D, ALIGN> SdSpi<'a, SPI, D, ALIGN>
 where
     SPI: embedded_hal_async::spi::SpiDevice,
     D: embedded_hal_async::delay::DelayNs + Clone,
     ALIGN: aligned::Alignment,
 {
-    pub fn new(spi: SPI, delay: D) -> Self {
+    pub fn new(spi: SPI, delay: D, buf: &'a mut [u8]) -> Self {
         Self {
             spi,
             delay,
             card: None,
+            buf,
             _align: PhantomData,
         }
+    }
+
+    async fn inner_write(&mut self, write: &[u8]) -> Result<(), SPI::Error>{
+        let len = write.len();
+        let buf = &mut self.buf[0..len];
+        buf.copy_from_slice(write);
+        self.spi.write(buf).await
+    }
+
+    async fn transfer_in_place(&mut self, transfer: &mut [u8]) -> Result<(), SPI::Error> {
+        let len = transfer.len();
+        let buf = &mut self.buf[0..len];
+        buf.copy_from_slice(&transfer);
+        self.spi.transfer_in_place(buf).await
     }
 
     pub async fn init(&mut self) -> Result<(), Error> {
         let r = async {
             // Supply minimum of 74 clock cycles without CS asserted.
-            self.spi
-                .write(&[0xFF; 10])
+            self.inner_write(&[0xFF; 10])
                 .await
                 .map_err(|_| Error::SpiError)?;
 
@@ -127,8 +142,7 @@ where
                         return Err(Error::UnsupportedCard);
                     }
                     let mut buffer = [0xFFu8; 4];
-                    self.spi
-                        .transfer_in_place(&mut buffer[..])
+                    self.transfer_in_place(&mut buffer[..])
                         .await
                         .map_err(|_| Error::SpiError)?;
                     if buffer[3] == 0xAA {
@@ -261,8 +275,7 @@ where
                 }
                 // stop the write
                 self.wait_idle().await?;
-                self.spi
-                    .write(&[STOP_TRAN_TOKEN])
+                self.inner_write(&[STOP_TRAN_TOKEN])
                     .await
                     .map_err(|_| Error::SpiError)?;
             }
@@ -294,14 +307,12 @@ where
         }
 
         buffer.fill(0xFF);
-        self.spi
-            .transfer_in_place(buffer)
+        self.transfer_in_place(buffer)
             .await
             .map_err(|_| Error::SpiError)?;
 
         let mut crc_bytes = [0xFF; 2];
-        self.spi
-            .transfer_in_place(&mut crc_bytes)
+        self.transfer_in_place(&mut crc_bytes)
             .await
             .map_err(|_| Error::SpiError)?;
         let crc = u16::from_be_bytes(crc_bytes);
@@ -314,14 +325,12 @@ where
     }
 
     async fn write_data(&mut self, token: u8, buffer: &[u8]) -> Result<(), Error> {
-        self.spi
-            .write(&[token])
+        self.inner_write(&[token])
             .await
             .map_err(|_| Error::SpiError)?;
-        self.spi.write(buffer).await.map_err(|_| Error::SpiError)?;
+        self.inner_write(buffer).await.map_err(|_| Error::SpiError)?;
         let crc_bytes = crc16(buffer).to_be_bytes();
-        self.spi
-            .write(&crc_bytes)
+        self.inner_write(&crc_bytes)
             .await
             .map_err(|_| Error::SpiError)?;
 
@@ -352,12 +361,11 @@ where
         ];
         buf[5] = crc7(&buf[0..5]);
 
-        self.spi.write(&buf).await.map_err(|_| Error::SpiError)?;
+        self.inner_write(&buf).await.map_err(|_| Error::SpiError)?;
 
         // skip stuff byte for stop read
         if cmd.cmd == stop_transmission().cmd {
-            self.spi
-                .transfer_in_place(&mut [0xFF])
+            self.transfer_in_place(&mut [0xFF])
                 .await
                 .map_err(|_| Error::SpiError)?;
         }
@@ -391,8 +399,7 @@ where
 
     async fn read_byte(&mut self) -> Result<u8, Error> {
         let mut buf = [0xFFu8; 1];
-        self.spi
-            .transfer_in_place(&mut buf[..])
+        self.transfer_in_place(&mut buf[..])
             .await
             .map_err(|_| Error::SpiError)?;
 
@@ -400,8 +407,8 @@ where
     }
 }
 
-impl<SPI, D, ALIGN, const SIZE: usize> block_device_driver::BlockDevice<SIZE>
-    for SdSpi<SPI, D, ALIGN>
+impl<'a, SPI, D, ALIGN, const SIZE: usize> block_device_driver::BlockDevice<SIZE>
+    for SdSpi<'a, SPI, D, ALIGN>
 where
     SPI: embedded_hal_async::spi::SpiDevice,
     D: embedded_hal_async::delay::DelayNs + Clone,
