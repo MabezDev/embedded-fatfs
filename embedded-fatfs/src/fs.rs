@@ -931,7 +931,7 @@ impl OemCpConverter for LossyOemCpConverter {
     }
 }
 
-pub(crate) async fn write_zeros<IO: ReadWriteSeek>(disk: &mut IO, mut len: u64) -> Result<(), IO::Error> {
+async fn write_zeros<IO: ReadWriteSeek>(disk: &mut IO, mut len: u64) -> Result<(), IO::Error> {
     const ZEROS: [u8; 512] = [0_u8; 512];
     while len > 0 {
         let write_size = cmp::min(len, ZEROS.len() as u64) as usize;

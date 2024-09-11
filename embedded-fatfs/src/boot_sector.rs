@@ -480,7 +480,7 @@ impl Default for BootSector {
     }
 }
 
-pub(crate) fn estimate_fat_type(total_bytes: u64) -> FatType {
+fn estimate_fat_type(total_bytes: u64) -> FatType {
     // Used only to select cluster size if FAT type has not been overriden in options
     if total_bytes < 4 * MB_64 {
         FatType::Fat12
