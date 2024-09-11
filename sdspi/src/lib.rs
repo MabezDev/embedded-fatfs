@@ -70,12 +70,14 @@ pub enum Error {
 }
 
 /// Must be called between powerup and [SdSpi::init] to ensure the sdcard is properly initialized.
-pub async fn sd_init<SPI, BE>(spi: &mut SPI) -> Result<(), BE>
+pub async fn sd_init<SPI, CS, BE>(spi: &mut SPI, cs: &mut CS) -> Result<(), Error>
 where
     SPI: embedded_hal_async::spi::SpiBus<Error = BE>,
+    CS: embedded_hal::digital::OutputPin,
 {
     // Supply minimum of 74 clock cycles without CS asserted.
-    spi.write(&[0xFF; 10]).await?;
+    cs.set_high().map_err(|_| Error::ChipSelect)?;
+    spi.write(&[0xFF; 10]).await.map_err(|_| Error::SpiError)?;
 
     Ok(())
 }
