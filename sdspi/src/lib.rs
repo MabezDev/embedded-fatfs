@@ -69,6 +69,19 @@ pub enum Error {
     WriteError,
 }
 
+/// Must be called between powerup and [SdSpi::init] to ensure the sdcard is properly initialized.
+pub async fn sd_init<SPI, CS, BE>(spi: &mut SPI, cs: &mut CS) -> Result<(), Error>
+where
+    SPI: embedded_hal_async::spi::SpiBus<Error = BE>,
+    CS: embedded_hal::digital::OutputPin,
+{
+    // Supply minimum of 74 clock cycles without CS asserted.
+    cs.set_high().map_err(|_| Error::ChipSelect)?;
+    spi.write(&[0xFF; 10]).await.map_err(|_| Error::SpiError)?;
+
+    Ok(())
+}
+
 pub struct SdSpi<SPI, D, ALIGN>
 where
     SPI: embedded_hal_async::spi::SpiDevice,
@@ -96,14 +109,9 @@ where
         }
     }
 
+    /// To comply with the SD card spec, [sd_init] must be called between powerup and calling this function.
     pub async fn init(&mut self) -> Result<(), Error> {
         let r = async {
-            // Supply minimum of 74 clock cycles without CS asserted.
-            self.spi
-                .write(&[0xFF; 10])
-                .await
-                .map_err(|_| Error::SpiError)?;
-
             with_timeout(self.delay.clone(), 1000, async {
                 loop {
                     let r = self.cmd(idle()).await?;
