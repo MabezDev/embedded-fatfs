@@ -29,7 +29,7 @@ async fn main(_spawner: Spawner) {
     let miso = p.PIN_16;
     let mosi = p.PIN_7;
     let clk = p.PIN_6;
-    let cs = Output::new(p.PIN_5, Level::High);
+    let mut cs = Output::new(p.PIN_5, Level::High);
 
     let mut config = Config::default();
     config.frequency = 400_000;
@@ -47,7 +47,7 @@ async fn main(_spawner: Spawner) {
     // Sd cards need to be clocked with a at least 74 cycles on their spi clock without the cs enabled,
     // sd_init is a helper function that does this for us.
     loop {
-        match sd_init(&mut spi).await {
+        match sd_init(&mut spi, &mut cs).await {
             Ok(_) => break,
             Err(e) => {
                 defmt::warn!("Sd init error: {}", e);
@@ -63,7 +63,7 @@ async fn main(_spawner: Spawner) {
 
     loop {
         // Initialize the card
-        if let Ok(_) = sd.init().await {
+        if sd.init().await.is_ok() {
             // Increase the speed up to the SD max of 25mhz
 
             let mut config = Config::default();
