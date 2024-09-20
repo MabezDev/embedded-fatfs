@@ -247,6 +247,46 @@ async fn test_get_file_by_path_fat32() {
     test_get_file_by_path(create_fs(FAT32_IMG).await).await
 }
 
+async fn test_exists(fs: FileSystem) {
+    let root_dir = fs.root_dir();
+
+    // check for existence of existing dir
+    assert_eq!(root_dir.exists("very/long/path").await.unwrap(), true);
+    assert_eq!(root_dir.file_exists("very/long/path").await.unwrap(), false);
+    assert_eq!(root_dir.dir_exists("very/long/path").await.unwrap(), true);
+    // check for existence of existing file
+    assert_eq!(root_dir.exists("very/long/path/test.txt").await.unwrap(), true);
+    assert_eq!(root_dir.file_exists("very/long/path/test.txt").await.unwrap(), true);
+    assert_eq!(root_dir.dir_exists("very/long/path/test.txt").await.unwrap(), false);
+    // check for existence of non existing file
+    assert_eq!(root_dir.exists("very/long/path/missing.txt").await.unwrap(), false);
+    assert_eq!(root_dir.file_exists("very/long/path/missing.txt").await.unwrap(), false);
+    assert_eq!(root_dir.dir_exists("very/long/path/missing.txt").await.unwrap(), false);
+    // check for existence of invalid path
+    assert!(root_dir.exists("very/missing/path/test.txt").await.is_err());
+    assert!(root_dir.file_exists("very/missing/path/test.txt").await.is_err());
+    assert!(root_dir.dir_exists("very/missing/path/test.txt").await.is_err());
+    // check for existence of invalid path containing file as non-last component
+    assert!(root_dir.exists("very/missing/path/test.txt/abc").await.is_err());
+    assert!(root_dir.file_exists("very/missing/path/test.txt/abc").await.is_err());
+    assert!(root_dir.dir_exists("very/missing/path/test.txt/abc").await.is_err());
+}
+
+#[tokio::test]
+async fn test_exists_fat12() {
+    test_exists(create_fs(FAT12_IMG).await).await
+}
+
+#[tokio::test]
+async fn test_exists_fat16() {
+    test_exists(create_fs(FAT16_IMG).await).await
+}
+
+#[tokio::test]
+async fn test_exists_fat32() {
+    test_exists(create_fs(FAT32_IMG).await).await
+}
+
 async fn test_volume_metadata(fs: FileSystem, fat_type: FatType) {
     assert_eq!(fs.volume_id(), 0x1234_5678);
     assert_eq!(fs.volume_label(), "Test!");
