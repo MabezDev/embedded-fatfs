@@ -30,6 +30,8 @@ pub enum Error<T> {
     InvalidFileNameLength,
     /// The provided file name contains an invalid character.
     UnsupportedFileNameCharacter,
+    /// An entry in the file table is corrupted/invalid.
+    CorruptedFileEntry,
 }
 
 impl<T: Debug> IoError for Error<T> {
@@ -76,6 +78,7 @@ impl<T: core::fmt::Display> core::fmt::Display for Error<T> {
             Error::NotFound => write!(f, "No such file or directory"),
             Error::AlreadyExists => write!(f, "File or directory already exists"),
             Error::CorruptedFileSystem => write!(f, "Corrupted file system"),
+            Error::CorruptedFileEntry => write!(f, "Corrupted file entry"),
         }
     }
 }

@@ -816,7 +816,7 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC> DirIter<'a, IO, TP, OCC> {
                 DirEntryData::Lfn(data) => {
                     // Append to LFN buffer
                     trace!("lfn entry");
-                    lfn_builder.process(&data);
+                    lfn_builder.process::<IO>(&data)?;
                 }
             }
         }
@@ -1040,14 +1040,14 @@ impl LongNameBuilder {
         self.index == 0
     }
 
-    fn process(&mut self, data: &DirLfnEntryData) {
+    fn process<IO: ReadWriteSeek>(&mut self, data: &DirLfnEntryData) -> Result<(), Error<IO::Error>> {
         let is_last = (data.order() & LFN_ENTRY_LAST_FLAG) != 0;
         let index = data.order() & 0x1F;
         if index == 0 || usize::from(index) > MAX_LONG_DIR_ENTRIES {
             // Corrupted entry
-            warn!("currupted lfn entry! {:x}", data.order());
+            warn!("corrupted lfn entry! {:x}", data.order());
             self.clear();
-            return;
+            return Err(Error::CorruptedFileEntry);
         }
         if is_last {
             // last entry is actually first entry in stream
@@ -1057,14 +1057,14 @@ impl LongNameBuilder {
         } else if self.index == 0 || index != self.index - 1 || data.checksum() != self.chksum {
             // Corrupted entry
             warn!(
-                "currupted lfn entry! {:x} {:x} {:x} {:x}",
+                "corrupted lfn entry! {:x} {:x} {:x} {:x}",
                 data.order(),
                 self.index,
                 data.checksum(),
                 self.chksum
             );
             self.clear();
-            return;
+            return Err(Error::CorruptedFileEntry);
         } else {
             // Decrement LFN index only for non-last entries
             self.index -= 1;
@@ -1072,6 +1072,7 @@ impl LongNameBuilder {
         let pos = LFN_PART_LEN * usize::from(index - 1);
         // copy name parts into LFN buffer
         data.copy_name_to_slice(&mut self.buf.ucs2_units[pos..pos + 13]);
+        Ok(())
     }
 
     fn validate_chksum(&mut self, short_name: &[u8; SFN_SIZE]) {
@@ -1098,7 +1099,9 @@ impl LongNameBuilder {
     fn clear(&mut self) {}
     fn into_vec(self) {}
     fn truncate(&mut self) {}
-    fn process(&mut self, _data: &DirLfnEntryData) {}
+    fn process<IO: ReadWriteSeek>(&mut self, _data: &DirLfnEntryData) -> Result<(), Error<IO::Error>> {
+        Ok(())
+    }
     fn validate_chksum(&mut self, _short_name: &[u8; SFN_SIZE]) {}
 }
 
