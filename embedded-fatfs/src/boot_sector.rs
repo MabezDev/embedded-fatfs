@@ -615,7 +615,6 @@ fn try_fs_geometry(
         total_sectors - u32::from(reserved_sectors) - root_dir_sectors - sectors_per_fat * u32::from(fats);
     let total_clusters = data_sectors / u32::from(sectors_per_cluster);
     if fat_type != FatType::from_clusters(total_clusters) {
-        error!("Invalid FAT type");
         return Err(Error::InvalidInput);
     }
     debug_assert!(total_clusters >= fat_type.min_clusters());
