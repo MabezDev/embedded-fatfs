@@ -693,8 +693,15 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
         validate_long_name(name)?;
         // convert long name to UTF-16
         let lfn_utf16 = Self::encode_lfn_utf16(name);
-        // write LFN entries
-        let (mut stream, start_pos) = self.alloc_and_write_lfn_entries(&lfn_utf16, raw_entry.name()).await?;
+        let (mut stream, start_pos) = if name == "." || name == ".." {
+            // skip LFN entries for "." and ".." and only find space 1 SFN entry
+            let mut stream = self.find_free_entries(1).await?;
+            let start_pos = stream.seek(io::SeekFrom::Current(0)).await?;
+            (stream, start_pos)
+        } else {
+            // write LFN entries
+            self.alloc_and_write_lfn_entries(&lfn_utf16, raw_entry.name()).await?
+        };
         // write short name entry
         raw_entry.serialize(&mut stream).await?;
         // Get position directory stream after entries were written
