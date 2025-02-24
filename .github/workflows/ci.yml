@@ -60,21 +60,30 @@ jobs:
           command: build
           args: -p embedded-fatfs --no-default-features --features lfn
 
+      - name: Run cargo build - no_std, alloc
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: -p embedded-fatfs --no-default-features --features alloc
+
       - name: Run cargo build - no_std, alloc, lfn, unicode
         uses: actions-rs/cargo@v1
         with:
           command: build
           args: -p embedded-fatfs --no-default-features --features alloc,lfn,unicode
+
       - name: Run cargo build - no_std, alloc, lfn, unicode
         uses: actions-rs/cargo@v1
         with:
           command: build
           args: -p embedded-fatfs --no-default-features --features alloc,lfn,unicode
+
       - name: Run cargo build - Check defmt
         uses: actions-rs/cargo@v1
         with:
           command: build
           args: -p embedded-fatfs --no-default-features --features alloc,lfn,unicode,defmt
+
       - name: Run cargo build - Check log
         uses: actions-rs/cargo@v1
         with:

@@ -59,7 +59,7 @@
     clippy::uninlined_format_args, // not supported before Rust 1.58.0
 )]
 
-#[cfg(all(not(feature = "std"), feature = "alloc"))]
+#[cfg(feature = "alloc")]
 extern crate alloc;
 
 // MUST be the first module listed

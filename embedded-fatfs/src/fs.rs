@@ -6,7 +6,7 @@ use core::fmt::Debug;
 use core::marker::PhantomData;
 use core::u32;
 
-#[cfg(all(not(feature = "std"), feature = "alloc", feature = "lfn"))]
+#[cfg(feature = "alloc")]
 use alloc::string::String;
 #[cfg(feature = "std")]
 use embedded_io_adapters::tokio_1::FromTokio;

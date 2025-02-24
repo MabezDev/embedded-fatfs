@@ -5,7 +5,7 @@ use core::fmt;
 use core::iter;
 use core::str;
 
-#[cfg(all(not(feature = "std"), feature = "alloc", feature = "lfn"))]
+#[cfg(feature = "alloc")]
 use alloc::string::String;
 
 #[cfg(feature = "lfn")]
