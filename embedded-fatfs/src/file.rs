@@ -74,7 +74,7 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
     ///
     /// Prefer using [`DirEntry::try_to_file_with_context`](crate::dir_entry::DirEntry::try_to_file_with_context) where possible because
     /// it does some basic checks to avoid file corruption.
-    pub(crate) fn new_from_context(context: FileContext, fs: &'a FileSystem<IO, TP, OCC>) -> Self {
+    pub fn new_from_context(context: FileContext, fs: &'a FileSystem<IO, TP, OCC>) -> Self {
         File { context, fs }
     }
 
