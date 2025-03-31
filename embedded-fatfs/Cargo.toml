@@ -32,7 +32,7 @@ defmt = ["dep:defmt"]
 dirty-file-panic = []
 
 # Default features
-default = ["chrono", "std", "alloc", "lfn", "unicode", "log"]
+default = ["chrono", "lfn", "unicode", "log"]
 
 [dependencies]
 # core deps
@@ -49,5 +49,6 @@ defmt = { version = "0.3", optional = true }
 
 [dev-dependencies]
 env_logger = "0.9"
+embedded-fatfs = { path = ".", features = [ "std", "alloc" ] }
 tokio = { version = "1", default-features = false, features = ["fs", "rt-multi-thread", "macros", "io-util"] }
 anyhow = "1"
