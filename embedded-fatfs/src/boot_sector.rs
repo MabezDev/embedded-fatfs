@@ -972,6 +972,14 @@ mod tests {
             type Error = Self;
         }
 
+        impl core::fmt::Display for Dummy {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                write!(f, "Dummy error")
+            }
+        }
+
+        impl core::error::Error for Dummy {}
+
         impl embedded_io_async::Error for Dummy {
             fn kind(&self) -> embedded_io_async::ErrorKind {
                 embedded_io_async::ErrorKind::TimedOut

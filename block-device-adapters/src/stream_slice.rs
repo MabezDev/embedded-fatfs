@@ -17,6 +17,16 @@ impl<E: Debug> From<E> for StreamSliceError<E> {
     }
 }
 
+impl<E: Debug> core::fmt::Display for StreamSliceError<E> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            StreamSliceError::InvalidSeek(pos) => write!(f, "Invalid seek position: {}", pos),
+            StreamSliceError::WriteZero => write!(f, "Write zero bytes"),
+            StreamSliceError::Other(e) => write!(f, "Other error: {:?}", e),
+        }
+    }
+}
+
 /// Stream wrapper for accessing limited segment of data from underlying file or device.
 pub struct StreamSlice<T: Read + Write + Seek> {
     inner: T,
@@ -24,6 +34,8 @@ pub struct StreamSlice<T: Read + Write + Seek> {
     current_offset: u64,
     size: u64,
 }
+
+impl<E: Debug> core::error::Error for StreamSliceError<E> {}
 
 impl<E: Debug> embedded_io_async::Error for StreamSliceError<E> {
     fn kind(&self) -> embedded_io_async::ErrorKind {

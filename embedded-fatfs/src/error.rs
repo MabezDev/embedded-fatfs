@@ -32,13 +32,13 @@ pub enum Error<T> {
     UnsupportedFileNameCharacter,
 }
 
-impl<T: Debug> IoError for Error<T> {
+impl<T: Debug + core::fmt::Display> IoError for Error<T> {
     fn kind(&self) -> ErrorKind {
         ErrorKind::Other
     }
 }
 
-impl<T: IoError> From<T> for Error<T> {
+impl<T: IoError + Debug + core::fmt::Display> From<T> for Error<T> {
     fn from(error: T) -> Self {
         Error::Io(error)
     }
@@ -53,7 +53,7 @@ impl<T> From<ReadExactError<Error<T>>> for Error<T> {
     }
 }
 
-impl<T: IoError> From<ReadExactError<T>> for Error<T> {
+impl<T: IoError + Debug + core::fmt::Display> From<ReadExactError<T>> for Error<T> {
     fn from(error: ReadExactError<T>) -> Self {
         match error {
             ReadExactError::UnexpectedEof => Self::UnexpectedEof,
@@ -80,13 +80,4 @@ impl<T: core::fmt::Display> core::fmt::Display for Error<T> {
     }
 }
 
-#[cfg(feature = "std")]
-impl<T: std::error::Error + 'static> std::error::Error for Error<T> {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        if let Error::Io(io_error) = self {
-            Some(io_error)
-        } else {
-            None
-        }
-    }
-}
+impl<T: Debug + core::fmt::Display> core::error::Error for Error<T> {}

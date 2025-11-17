@@ -73,6 +73,7 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for DirRawStream<'_, IO, TP
             DirRawStream::Root(raw) => raw.write(buf).await,
         }
     }
+
     async fn flush(&mut self) -> Result<(), Self::Error> {
         match self {
             DirRawStream::File(file) => file.flush().await,
