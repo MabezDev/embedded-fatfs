@@ -375,10 +375,12 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
     ///
     /// Panics in non-optimized build if `storage` position returned by `seek` is not zero.
     pub async fn new<T: IntoStorage<IO>>(storage: T, options: FsOptions<TP, OCC>) -> Result<Self, Error<IO::Error>> {
-        // Make sure given image is not seeked
         let mut disk = storage.into_storage();
         trace!("FileSystem::new");
-        debug_assert!(disk.seek(SeekFrom::Current(0)).await? == 0);
+
+        // Make sure given image is not seeked
+        let pos = disk.seek(SeekFrom::Start(0)).await?;
+        debug_assert_eq!(pos, 0);
 
         // read boot sector
         let bpb = {
