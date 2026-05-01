@@ -32,7 +32,7 @@ async fn main() -> anyhow::Result<()> {
     );
     println!("{}", "-".repeat(75));
 
-    for (idx, p) in mbr.iter() {
+    for (idx, p) in mbr.iter().enumerate() {
         let bootable = if p.is_bootable() { "*" } else { " " };
         let type_str = match p.partition_type() {
             PartitionType::Empty => "<empty>".to_string(),

@@ -115,20 +115,22 @@ impl<IO> Mbr<IO> {
         self.disk_size
     }
 
-    /// Iterates `(index, entry)` over all four partition entries,
-    /// including unused ones.
+    /// Iterates over all four partition entries, including unused ones.
     ///
     /// Entries are yielded by value, so callers can `.collect()` and
     /// then call [`open_partition`](Self::open_partition) (which needs
-    /// `&mut self`) without borrow-checker friction.
-    pub fn iter(&self) -> impl Iterator<Item = (usize, PartitionEntry)> + '_ {
-        self.partitions.iter().copied().enumerate()
+    /// `&mut self`) without borrow-checker friction. Use
+    /// `.enumerate()` if you also need the entry index.
+    pub fn iter(&self) -> impl Iterator<Item = PartitionEntry> + '_ {
+        self.partitions.iter().copied()
     }
 
     /// Iterates `(index, entry)` over partition entries that are in
-    /// use. See [`iter`](Self::iter) for ownership notes.
+    /// use. The index is preserved so callers can pass it straight to
+    /// [`open_partition`](Self::open_partition) /
+    /// [`into_partition`](Self::into_partition).
     pub fn iter_used(&self) -> impl Iterator<Item = (usize, PartitionEntry)> + '_ {
-        self.iter().filter(|(_, p)| !p.is_unused())
+        self.iter().enumerate().filter(|(_, p)| !p.is_unused())
     }
 
     /// Returns the partition entry at `index`, or `None` if `index >= 4`.
