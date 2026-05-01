@@ -20,9 +20,9 @@ impl<E: Debug> From<E> for StreamSliceError<E> {
 impl<E: Debug> core::fmt::Display for StreamSliceError<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            StreamSliceError::InvalidSeek(pos) => write!(f, "Invalid seek position: {}", pos),
+            StreamSliceError::InvalidSeek(pos) => write!(f, "Invalid seek position: {pos}"),
             StreamSliceError::WriteZero => write!(f, "Write zero bytes"),
-            StreamSliceError::Other(e) => write!(f, "Other error: {:?}", e),
+            StreamSliceError::Other(e) => write!(f, "Other error: {e:?}"),
         }
     }
 }

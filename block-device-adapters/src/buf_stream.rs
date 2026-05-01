@@ -18,7 +18,7 @@ impl<T> From<T> for BufStreamError<T> {
 impl<T: core::fmt::Debug> core::fmt::Display for BufStreamError<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            BufStreamError::Io(e) => write!(f, "IO error: {:?}", e),
+            BufStreamError::Io(e) => write!(f, "IO error: {e:?}"),
         }
     }
 }

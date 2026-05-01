@@ -10,6 +10,8 @@ jobs:
         include:
           - rust_version: nightly
             run_tests: true
+          - rust_version: 1.85
+            run_tests: true
     runs-on: ubuntu-latest
     continue-on-error: ${{ matrix.rust_version == 'nightly' }}
     env:
@@ -17,75 +19,38 @@ jobs:
       RUST_BACKTRACE: 1
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
-          profile: minimal
           toolchain: ${{ matrix.rust_version }}
-          override: true
 
       - name: Print Rust compiler version
         run: rustc --version
 
-      - name: Run cargo build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -p embedded-fatfs
+      - name: Build embedded-fatfs (all feature combinations)
+        run: |
+          cargo build -p embedded-fatfs
+          cargo build -p embedded-fatfs --examples
+          cargo build -p embedded-fatfs --no-default-features
+          cargo build -p embedded-fatfs --no-default-features --features lfn
+          cargo build -p embedded-fatfs --no-default-features --features alloc,lfn,unicode
+          cargo build -p embedded-fatfs --no-default-features --features alloc,lfn,unicode,defmt
+          cargo build -p embedded-fatfs --no-default-features --features alloc,lfn,unicode,log
 
-      - name: Run cargo build --examples
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -p embedded-fatfs --examples
-
-      - name: Run cargo test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --verbose --features dirty-file-panic # always supply dirty-file-panic to find internal flushing issues
+      - name: Test embedded-fatfs
+        # always supply dirty-file-panic to find internal flushing issues
+        run: cargo test -p embedded-fatfs --verbose --features dirty-file-panic
         if: ${{ matrix.run_tests }}
 
-      - name: Run cargo build - no_std
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -p embedded-fatfs --no-default-features
+      - name: Build embedded-partitions (all feature combinations)
+        run: |
+          cargo build -p embedded-partitions
+          cargo build -p embedded-partitions --examples
+          cargo build -p embedded-partitions --no-default-features --features defmt
+          cargo build -p embedded-partitions --no-default-features --features log
 
-      - name: Run cargo build - no_std, lfn
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -p embedded-fatfs --no-default-features --features lfn
-
-      - name: Run cargo build - no_std, alloc
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -p embedded-fatfs --no-default-features --features alloc
-
-      - name: Run cargo build - no_std, alloc, lfn, unicode
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -p embedded-fatfs --no-default-features --features alloc,lfn,unicode
-
-      - name: Run cargo build - no_std, alloc, lfn, unicode
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -p embedded-fatfs --no-default-features --features alloc,lfn,unicode
-
-      - name: Run cargo build - Check defmt
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -p embedded-fatfs --no-default-features --features alloc,lfn,unicode,defmt
-
-      - name: Run cargo build - Check log
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -p embedded-fatfs --no-default-features --features alloc,lfn,unicode,log
+      - name: Test embedded-partitions
+        run: cargo test -p embedded-partitions --verbose
+        if: ${{ matrix.run_tests }}
