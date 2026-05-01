@@ -67,10 +67,8 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
 
     /// Create a file from a preexisting [`FileContext`] & [`FileSystem`].
     ///
-    /// Re-reads the 32-byte directory entry from disk and compares it against
-    /// the snapshot stored in the context. Returns `Error::InvalidInput` if
-    /// the file has been modified, deleted, or the filesystem reformatted
-    /// since the context was created.
+    /// Returns `Error::InvalidInput` if the file has been modified, deleted,
+    /// or the filesystem reformatted since the context was created.
     ///
     /// **WARNING**: Two or more concurrent write accesses to the same file
     /// will corrupt the filesystem. This is a caller invariant — the library
