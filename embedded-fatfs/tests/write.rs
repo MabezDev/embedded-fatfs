@@ -453,7 +453,7 @@ async fn test_rename_file_fat32() {
     call_with_fs(test_rename_file, FAT32_IMG, 6).await
 }
 
-async fn test_dirty_flag(tmp_path: String) {
+async fn test_dirty_flag_fat32_inner(tmp_path: String) {
     // Open filesystem, make change, and forget it - should become dirty
     let fs = open_filesystem_rw(tmp_path.clone()).await;
     let status_flags = fs.read_status_flags().await.unwrap();
@@ -474,19 +474,35 @@ async fn test_dirty_flag(tmp_path: String) {
     assert_eq!(status_flags.io_error(), false);
 }
 
+async fn test_dirty_flag_fat12_16_inner(tmp_path: String) {
+    // FAT12/FAT16 do not store dirty flags in the BPB, so the dirty flag
+    // is not persisted across mounts via BPB writes (only FAT32 does this).
+    let fs = open_filesystem_rw(tmp_path.clone()).await;
+    let status_flags = fs.read_status_flags().await.unwrap();
+    assert_eq!(status_flags.dirty(), false);
+    assert_eq!(status_flags.io_error(), false);
+    fs.root_dir().create_file("abc.txt").await.unwrap();
+    core::mem::forget(fs);
+    // FAT12/16: dirty flag is NOT persisted in BPB, so remount sees clean
+    let fs = open_filesystem_rw(tmp_path).await;
+    let status_flags = fs.read_status_flags().await.unwrap();
+    assert_eq!(status_flags.dirty(), false);
+    assert_eq!(status_flags.io_error(), false);
+}
+
 #[tokio::test]
 async fn test_dirty_flag_fat12() {
-    call_with_tmp_img(test_dirty_flag, FAT12_IMG, 7).await
+    call_with_tmp_img(test_dirty_flag_fat12_16_inner, FAT12_IMG, 7).await
 }
 
 #[tokio::test]
 async fn test_dirty_flag_fat16() {
-    call_with_tmp_img(test_dirty_flag, FAT16_IMG, 7).await
+    call_with_tmp_img(test_dirty_flag_fat12_16_inner, FAT16_IMG, 7).await
 }
 
 #[tokio::test]
 async fn test_dirty_flag_fat32() {
-    call_with_tmp_img(test_dirty_flag, FAT32_IMG, 7).await
+    call_with_tmp_img(test_dirty_flag_fat32_inner, FAT32_IMG, 7).await
 }
 
 async fn test_multiple_files_in_directory(fs: FileSystem) {
