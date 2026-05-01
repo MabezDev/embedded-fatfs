@@ -598,6 +598,18 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
         let sfn_entry = e.data.renamed(short_name);
         dst_dir.write_entry(dst_name, sfn_entry).await?;
 
+        // If the moved entry is a directory, update its ".." entry to point to the new parent
+        if e.is_dir() {
+            let new_entry = dst_dir.find_entry(dst_name, Some(true), None).await?;
+            let moved_dir = new_entry.to_dir();
+            let dotdot_entry = moved_dir.find_entry("..", None, None).await?;
+            let mut dotdot_data = dotdot_entry.data.clone();
+            dotdot_data.set_first_cluster(dst_dir.stream.first_cluster(), self.fs.fat_type());
+            let mut disk = self.fs.disk.borrow_mut();
+            disk.seek(SeekFrom::Start(dotdot_entry.entry_pos)).await?;
+            dotdot_data.serialize(&mut *disk).await?;
+        }
+
         // rename requires stream flush (no async drop :()
         stream.flush().await?;
         Ok(())
@@ -774,7 +786,6 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC> DirIter<'a, IO, TP, OCC> {
         let mut begin_offset = offset;
         loop {
             let raw_entry = DirEntryData::deserialize(&mut self.stream).await?;
-            // access time has changed
             self.stream.flush().await?;
             offset += u64::from(DIR_ENTRY_SIZE);
             // Check if this is end of dir
@@ -867,6 +878,14 @@ fn validate_long_name<E: IoError>(name: &str) -> Result<(), Error<E>> {
     }
     if name.len() > MAX_LONG_NAME_LEN {
         return Err(Error::InvalidFileNameLength);
+    }
+    // reject names that are entirely dots and/or spaces (effectively empty after trimming),
+    // but allow the special "." and ".." directory entries
+    if name != "." && name != ".." {
+        let trimmed = name.trim_end_matches(|c| c == '.' || c == ' ');
+        if trimmed.is_empty() {
+            return Err(Error::InvalidFileNameLength);
+        }
     }
     // check if there are only valid characters
     for c in name.chars() {
