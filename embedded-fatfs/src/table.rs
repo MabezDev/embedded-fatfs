@@ -98,7 +98,14 @@ where
 {
     let val = read_fat(fat, fat_type, cluster).await?;
     match val {
-        FatValue::Data(n) => Ok(Some(n)),
+        FatValue::Data(n) => {
+            // Clusters 0 and 1 are reserved in the FAT specification and must never
+            // appear as data cluster references. Treat them as filesystem corruption.
+            if n < 2 {
+                return Err(Error::CorruptedFileSystem);
+            }
+            Ok(Some(n))
+        }
         _ => Ok(None),
     }
 }
