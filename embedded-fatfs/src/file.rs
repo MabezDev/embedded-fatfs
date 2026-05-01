@@ -263,7 +263,8 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> File<'_, IO, TP, OCC> {
     ///
     /// A [`FileContext`] is returned, which can be used in conjunction with the
     /// `to_file_with_context` API.
-    pub async fn close(self) -> Result<FileContext, Error<IO::Error>> {
+    pub async fn close(mut self) -> Result<FileContext, Error<IO::Error>> {
+        self.flush().await?;
         Ok(FileContext {
             first_cluster: self.context.first_cluster,
             current_cluster: self.context.current_cluster,
@@ -366,6 +367,9 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
         let write_size = cmp::min(write_size, bytes_left_until_max_file_size);
         // Exit early if we are going to write no data
         if write_size == 0 {
+            if self.context.offset >= MAX_FILE_SIZE {
+                warn!("File size limit reached (4GiB)");
+            }
             return Ok(0);
         }
         // Mark the volume 'dirty'
