@@ -250,8 +250,8 @@ impl BiosParameterBlock {
             );
             return Err(Error::CorruptedFileSystem);
         }
-        if (self.total_sectors_16 == 0) == (self.total_sectors_32 == 0) {
-            error!("Invalid BPB (total_sectors_16 or total_sectors_32 should be non-zero)");
+        if self.total_sectors_16 == 0 && self.total_sectors_32 == 0 {
+            error!("Invalid BPB (total_sectors_16 and total_sectors_32 are both zero)");
             return Err(Error::CorruptedFileSystem);
         }
         let total_sectors = self.total_sectors();
@@ -333,7 +333,12 @@ impl BiosParameterBlock {
     }
 
     pub(crate) fn status_flags(&self) -> FsStatusFlags {
-        FsStatusFlags::decode(self.reserved_1)
+        if self.is_fat32() {
+            FsStatusFlags::decode(self.reserved_1)
+        } else {
+            // FAT12/FAT16 BPB does not carry status flags; they live in the FAT table
+            FsStatusFlags { dirty: false, io_error: false }
+        }
     }
 
     pub(crate) fn is_fat32(&self) -> bool {

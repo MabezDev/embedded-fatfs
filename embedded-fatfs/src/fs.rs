@@ -598,6 +598,10 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
     }
 
     pub(crate) async fn set_dirty_flag(&self, dirty: bool) -> Result<(), IO::Error> {
+        // FAT12/FAT16 BPB does not carry status flags; skip BPB write for non-FAT32
+        if self.fat_type() != FatType::Fat32 {
+            return Ok(());
+        }
         // Do not overwrite flags read from BPB on mount
         let mut flags = self.bpb.status_flags();
         flags.dirty |= dirty;
@@ -610,11 +614,7 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
         let encoded = flags.encode();
         // Note: only one field is written to avoid rewriting entire boot-sector which could be dangerous
         // Compute reserver_1 field offset and write new flags
-        let offset = if self.fat_type() == FatType::Fat32 {
-            0x041
-        } else {
-            0x025
-        };
+        let offset = 0x041u64;
         let mut disk = self.disk.borrow_mut();
         disk.seek(io::SeekFrom::Start(offset)).await?;
         disk.write_u8(encoded).await?;
