@@ -65,17 +65,31 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
         }
     }
 
-    /// Create a file from a prexisting [`FileContext`] & [`FileSystem`].
+    /// Create a file from a preexisting [`FileContext`] & [`FileSystem`].
     ///
-    /// **WARNING** This method has the power to corrupt the filesystem when misused.
-    /// Read and write access is allowed simultaneously, however two or more write accesses will corrupt the file system.
-    /// Avoid concurrent write access to ensure file system stability.
+    /// Re-reads the 32-byte directory entry from disk and compares it against
+    /// the snapshot stored in the context. Returns `Error::InvalidInput` if
+    /// the file has been modified, deleted, or the filesystem reformatted
+    /// since the context was created.
     ///
-    ///
-    /// Prefer using [`DirEntry::try_to_file_with_context`](crate::dir_entry::DirEntry::try_to_file_with_context) where possible because
-    /// it does some basic checks to avoid file corruption.
-    pub(crate) fn new_from_context(context: FileContext, fs: &'a FileSystem<IO, TP, OCC>) -> Self {
-        File { context, fs }
+    /// **WARNING**: Two or more concurrent write accesses to the same file
+    /// will corrupt the filesystem. This is a caller invariant — the library
+    /// does not track open files.
+    pub async fn new_from_context(context: FileContext, fs: &'a FileSystem<IO, TP, OCC>) -> Result<Self, Error<IO::Error>> {
+        let editor = context.entry.as_ref().ok_or(Error::InvalidInput)?;
+
+        let mut on_disk = [0u8; 32];
+        {
+            let mut disk = fs.disk.borrow_mut();
+            disk.seek(SeekFrom::Start(editor.pos())).await?;
+            disk.read_exact(&mut on_disk).await?;
+        }
+
+        if editor.inner().to_bytes() != on_disk {
+            return Err(Error::InvalidInput);
+        }
+
+        Ok(File { context, fs })
     }
 
     /// Truncate file in current position.
