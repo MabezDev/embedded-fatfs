@@ -219,7 +219,11 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
     fn is_dir(&self) -> bool {
         match self.context.entry {
             Some(ref e) => e.inner().is_dir(),
-            None => false,
+            // The only stream without a directory entry is the FAT32 root directory: it must be
+            // treated as a directory so that clusters allocated when it grows are zero-filled.
+            // A non-zeroed directory cluster has no end-of-directory marker and its stale
+            // content gets parsed as bogus file or directory entries.
+            None => true,
         }
     }
 
