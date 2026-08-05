@@ -489,6 +489,29 @@ async fn test_dirty_flag_fat32() {
     call_with_tmp_img(test_dirty_flag, FAT32_IMG, 7).await
 }
 
+async fn test_dirty_flag_cleared_by_stats(tmp_path: String) {
+    // Leave the volume dirty by dropping a mutated filesystem
+    let fs = open_filesystem_rw(tmp_path.clone()).await;
+    fs.root_dir().create_file("abc.txt").await.unwrap();
+    core::mem::forget(fs);
+
+    let fs = open_filesystem_rw(tmp_path.clone()).await;
+    assert_eq!(fs.read_status_flags().await.unwrap().dirty(), true);
+    // A dirty mount distrusts the FSInfo count, so this scans the FAT
+    let free = fs.stats().await.unwrap().free_clusters();
+    fs.unmount().await.unwrap();
+
+    // Now clean, and the recovered count is on disk rather than 0xFFFF_FFFF
+    let fs = open_filesystem_rw(tmp_path).await;
+    assert_eq!(fs.read_status_flags().await.unwrap().dirty(), false);
+    assert_eq!(fs.stats().await.unwrap().free_clusters(), free);
+}
+
+#[tokio::test]
+async fn test_dirty_flag_cleared_by_stats_fat32() {
+    call_with_tmp_img(test_dirty_flag_cleared_by_stats, FAT32_IMG, 9).await
+}
+
 async fn test_multiple_files_in_directory(fs: FileSystem) {
     let dir = fs.root_dir().create_dir("/TMP").await.unwrap();
     for i in 0..8 {
