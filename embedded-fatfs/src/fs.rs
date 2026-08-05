@@ -337,7 +337,8 @@ pub struct FileSystem<IO: Read + Write + Seek, TP, OCC> {
     pub(crate) disk: RefCell<IO>,
     pub(crate) options: FsOptions<TP, OCC>,
     fat_type: FatType,
-    bpb: BiosParameterBlock,
+    // `pub(crate)` for `dir`, which needs the root directory's first cluster to recognise a `..` entry pointing at it.
+    pub(crate) bpb: BiosParameterBlock,
     first_data_sector: u32,
     root_dir_sectors: u32,
     total_clusters: u32,

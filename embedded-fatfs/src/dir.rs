@@ -415,7 +415,20 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
                 let sfn_entry = e.create_sfn_entry(dot_sfn, FileAttributes::DIRECTORY, entry.first_cluster());
                 dir.write_entry(".", sfn_entry).await?;
                 let dotdot_sfn = ShortNameGenerator::generate_dotdot();
-                let sfn_entry = e.create_sfn_entry(dotdot_sfn, FileAttributes::DIRECTORY, e.stream.first_cluster());
+                // Per the spec, a ".." entry that points at the root directory point to cluster 0, not the root's actual cluster number.
+                //
+                // Microsoft FAT Specification heading 6.5 "Directory creation", pg. 27-28:
+                //
+                // > The second directory entry must have the directory name set to '..'. The contents of the
+                // > DIR_FstClusLO and DIR_FstClusHI fields must be the same as that of the parent of the current
+                // > directory. If the parent of the current directory is the root directory (see below), the
+                // > DIR_FstClusLO and DIR_FstClusHI contents must be set to 0.
+                //
+                let parent_cluster = e
+                    .stream
+                    .first_cluster()
+                    .filter(|&cluster| cluster != self.fs.bpb.root_dir_first_cluster);
+                let sfn_entry = e.create_sfn_entry(dotdot_sfn, FileAttributes::DIRECTORY, parent_cluster);
                 dir.write_entry("..", sfn_entry).await?;
                 Ok(dir)
             }
