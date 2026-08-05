@@ -469,7 +469,16 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
         self.bpb.bytes_from_sectors(sector)
     }
 
+    /// Whether `cluster` names a data cluster that exists on this volume.
+    ///
+    /// Clusters 0 and 1 are reserved and the highest usable cluster is `total_clusters + 1`, so anything outside that
+    /// range reached us from a corrupt FAT entry or directory entry.
+    pub(crate) fn is_valid_cluster(&self, cluster: u32) -> bool {
+        (RESERVED_FAT_ENTRIES..self.total_clusters + RESERVED_FAT_ENTRIES).contains(&cluster)
+    }
+
     fn sector_from_cluster(&self, cluster: u32) -> u32 {
+        debug_assert!(self.is_valid_cluster(cluster), "cluster {} is out of range", cluster);
         self.first_data_sector + self.bpb.sectors_from_clusters(cluster - RESERVED_FAT_ENTRIES)
     }
 
@@ -477,8 +486,22 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
         self.bpb.cluster_size()
     }
 
-    pub(crate) fn offset_from_cluster(&self, cluster: u32) -> u64 {
-        self.offset_from_sector(self.sector_from_cluster(cluster))
+    /// Byte offset of the first byte of `cluster`.
+    ///
+    /// Checks if cluster is valid (see `is_valid_cluster()`), and errors if not.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::CorruptedFileSystem` for cluster numbers outside the valid range.
+    pub(crate) fn offset_from_cluster(&self, cluster: u32) -> Result<u64, Error<IO::Error>> {
+        if !self.is_valid_cluster(cluster) {
+            error!(
+                "cluster {} is outside the volume ({} data clusters); the filesystem is corrupted",
+                cluster, self.total_clusters
+            );
+            return Err(Error::CorruptedFileSystem);
+        }
+        Ok(self.offset_from_sector(self.sector_from_cluster(cluster)))
     }
 
     pub(crate) fn bytes_from_clusters(&self, clusters: u32) -> u64 {
@@ -526,8 +549,9 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
             alloc_cluster(&mut fat, self.fat_type, prev_cluster, hint, self.total_clusters).await?
         };
         if zero {
+            let offset = self.offset_from_cluster(cluster)?;
             let mut disk = self.disk.borrow_mut();
-            disk.seek(SeekFrom::Start(self.offset_from_cluster(cluster))).await?;
+            disk.seek(SeekFrom::Start(offset)).await?;
             write_zeros(&mut *disk, u64::from(self.cluster_size())).await?;
         }
         let mut fs_info = self.fs_info.borrow_mut();
