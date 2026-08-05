@@ -567,11 +567,13 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
     ///
     /// `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub async fn read_status_flags(&self) -> Result<FsStatusFlags, Error<IO::Error>> {
-        let bpb_status = self.bpb.status_flags();
+        // The live flag, not `bpb`'s mount-time snapshot: `set_dirty_flag` updates the former, so reading the latter
+        // reports a volume as dirty for the rest of the session even once it has been cleared.
+        let boot_status = self.current_status_flags.get();
         let fat_status = read_fat_flags(&mut self.fat_slice(), self.fat_type).await?;
         Ok(FsStatusFlags {
-            dirty: bpb_status.dirty || fat_status.dirty,
-            io_error: bpb_status.io_error || fat_status.io_error,
+            dirty: boot_status.dirty || fat_status.dirty,
+            io_error: boot_status.io_error || fat_status.io_error,
         })
     }
 
