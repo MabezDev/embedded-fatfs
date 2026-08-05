@@ -220,7 +220,10 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
     fn is_dir(&self) -> bool {
         match self.context.entry {
             Some(ref e) => e.inner().is_dir(),
-            None => false,
+            // A `File` with no directory entry is the root directory, or one reached without walking to it from its
+            // parent. Report it as a directory, not a plain file, or new directory clusters are not zeroed, and the
+            // stale bytes read back as directory entries.
+            None => true,
         }
     }
 
