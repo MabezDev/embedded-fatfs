@@ -489,27 +489,41 @@ async fn test_dirty_flag_fat32() {
     call_with_tmp_img(test_dirty_flag, FAT32_IMG, 7).await
 }
 
-async fn test_dirty_flag_cleared_by_stats(tmp_path: String) {
-    // Leave the volume dirty by dropping a mutated filesystem
+/// Recovering the free-cluster count does not make a dirty volume clean.
+///
+/// A dirty mount distrusts the count in FSInfo, so `stats` scans the whole FAT to rebuild it. That scan says nothing
+/// about the metadata the flag is actually warning about, so neither it nor the flush on unmount may clear the flag.
+async fn test_dirty_flag_survives_stats(tmp_path: String) {
+    // Leave the volume dirty by dropping a mutated filesystem without unmounting
     let fs = open_filesystem_rw(tmp_path.clone()).await;
     fs.root_dir().create_file("abc.txt").await.unwrap();
     core::mem::forget(fs);
 
     let fs = open_filesystem_rw(tmp_path.clone()).await;
     assert_eq!(fs.read_status_flags().await.unwrap().dirty(), true);
-    // A dirty mount distrusts the FSInfo count, so this scans the FAT
-    let free = fs.stats().await.unwrap().free_clusters();
+    fs.stats().await.unwrap();
+    fs.flush().await.unwrap();
+    assert_eq!(fs.read_status_flags().await.unwrap().dirty(), true);
     fs.unmount().await.unwrap();
 
-    // Now clean, and the recovered count is on disk rather than 0xFFFF_FFFF
+    // And it is still set on the volume itself, not just in the handle we asked
     let fs = open_filesystem_rw(tmp_path).await;
-    assert_eq!(fs.read_status_flags().await.unwrap().dirty(), false);
-    assert_eq!(fs.stats().await.unwrap().free_clusters(), free);
+    assert_eq!(fs.read_status_flags().await.unwrap().dirty(), true);
 }
 
 #[tokio::test]
-async fn test_dirty_flag_cleared_by_stats_fat32() {
-    call_with_tmp_img(test_dirty_flag_cleared_by_stats, FAT32_IMG, 9).await
+async fn test_dirty_flag_survives_stats_fat12() {
+    call_with_tmp_img(test_dirty_flag_survives_stats, FAT12_IMG, 9).await
+}
+
+#[tokio::test]
+async fn test_dirty_flag_survives_stats_fat16() {
+    call_with_tmp_img(test_dirty_flag_survives_stats, FAT16_IMG, 9).await
+}
+
+#[tokio::test]
+async fn test_dirty_flag_survives_stats_fat32() {
+    call_with_tmp_img(test_dirty_flag_survives_stats, FAT32_IMG, 9).await
 }
 
 async fn test_multiple_files_in_directory(fs: FileSystem) {

@@ -80,11 +80,12 @@ async fn the_allocation_hint_advances_on_a_clean_volume() {
 
 /// A volume mounted dirty must still record where allocation got to.
 ///
-/// It used to not: the hint shares the FSInfo sector with the free-cluster
-/// count, mounting dirty discards that count, and the sector was only written
-/// when the count was known. So a device that had lost power once would allocate
-/// its way through every subsequent session without the hint ever reaching the
-/// card, and every mount would restart the search from cluster 2.
+/// The hint shares the FSInfo sector with the free-cluster count, and mounting
+/// dirty discards that count. This pins that writing the sector is driven by the
+/// hint alone and is not conditional on the count being known — otherwise a
+/// device that had lost power once would allocate its way through every
+/// subsequent session without the hint ever reaching the card, and every mount
+/// would restart the search from cluster 2.
 #[tokio::test]
 async fn the_allocation_hint_survives_a_dirty_mount() {
     let pristine = corpus::pristine::build().await;
@@ -112,25 +113,46 @@ async fn the_allocation_hint_survives_a_dirty_mount() {
     );
 }
 
-/// Writing the hint must not cost the free-cluster count.
+/// A count we decided not to trust must not be written back as if we did.
 ///
-/// Mounting dirty discards the count in memory, but the value on the card may
-/// well be right, and replacing it with "unknown" would force a full FAT scan
-/// later to recover something we never actually knew to be wrong.
+/// Mounting dirty discards the count, and every allocation after that is one the
+/// discarded value does not account for. Rewriting it would leave the card
+/// claiming free space that has since been handed out, and would do so again on
+/// every dirty session. "Unknown" costs the next mount a FAT scan and is the
+/// only honest answer.
 #[tokio::test]
-async fn a_discarded_free_count_is_left_as_it_was_on_the_card() {
+async fn a_discarded_free_count_is_written_back_as_unknown() {
     let pristine = corpus::pristine::build().await;
     let mut dirty = pristine.clone();
     mark_dirty(&mut dirty);
-    let before = fsinfo(&dirty, FREE_COUNT);
-    assert_ne!(before, UNKNOWN, "the fixture should start with a known count");
+    let before_count = fsinfo(&dirty, FREE_COUNT);
+    let before_hint = fsinfo(&dirty, NEXT_FREE);
+    assert_ne!(before_count, UNKNOWN, "the fixture should start with a known count");
 
     let after = write_a_file(&dirty, "NEW.BIN", 4096).await;
 
     assert_eq!(
         fsinfo(&after, FREE_COUNT),
-        before,
-        "the count on the card was replaced rather than preserved"
+        UNKNOWN,
+        "a count discarded at mount was written back to the card anyway"
+    );
+    // The sector was written — the count is unknown because we chose to say so,
+    // not because nothing reached the card.
+    assert!(
+        fsinfo(&after, NEXT_FREE) > before_hint,
+        "the FSInfo sector was not written at all: hint {} -> {}",
+        before_hint,
+        fsinfo(&after, NEXT_FREE)
+    );
+
+    // And the volume is still dirty. Nothing here checked the metadata the flag
+    // is warning about, so a clean unmount must not retire it; without this, an
+    // always-clear flush would leave the assertions above green while telling
+    // the next mount to trust whatever it finds.
+    let (fs, _buffer) = mount(&after).await;
+    assert!(
+        fs.read_status_flags().await.expect("read_status_flags").dirty(),
+        "unmounting marked a volume clean that was mounted dirty"
     );
 }
 

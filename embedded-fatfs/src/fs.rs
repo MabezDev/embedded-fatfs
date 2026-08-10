@@ -131,12 +131,18 @@ pub trait ReadWriteSeek: Read + Write + Seek {}
 
 impl<T: IoBase + Read + Write + Seek> ReadWriteSeek for T {}
 
+/// Highest cluster number that names real data on a volume of `total_clusters`.
+///
+/// Clusters 0 and 1 are reserved, and `total_cluster counts` data clusters only, so the data clusters are numbered
+/// `RESERVED_FAT_ENTRIES..=total_clusters + RESERVED_FAT_ENTRIES - 1`.
+pub(crate) const fn max_valid_cluster(total_clusters: u32) -> u32 {
+    total_clusters + RESERVED_FAT_ENTRIES - 1
+}
+
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Default, Debug)]
 struct FsInfoSector {
     free_cluster_count: Option<u32>,
-    /// The count as it stands on the card. On dirty mount, persist this, not Unknown
-    disk_free_cluster_count: Option<u32>,
     next_free_cluster: Option<u32>,
     dirty: bool,
 }
@@ -182,7 +188,6 @@ impl FsInfoSector {
         }
         Ok(Self {
             free_cluster_count,
-            disk_free_cluster_count: free_cluster_count,
             next_free_cluster,
             dirty: false,
         })
@@ -193,11 +198,7 @@ impl FsInfoSector {
         let reserved = [0_u8; 480];
         wrt.write_all(&reserved).await?;
         wrt.write_u32_le(Self::STRUC_SIG).await?;
-        // Falling back to the card's own value means a volume whose count we
-        // had to discard still gets its next-free hint written, without the
-        // count being replaced by "unknown" and forcing a later rescan.
-        let count = self.free_cluster_count.or(self.disk_free_cluster_count);
-        wrt.write_u32_le(count.unwrap_or(0xFFFF_FFFF)).await?;
+        wrt.write_u32_le(self.free_cluster_count.unwrap_or(0xFFFF_FFFF)).await?;
         wrt.write_u32_le(self.next_free_cluster.unwrap_or(0xFFFF_FFFF)).await?;
         let reserved2 = [0_u8; 12];
         wrt.write_all(&reserved2).await?;
@@ -207,7 +208,7 @@ impl FsInfoSector {
     }
 
     fn validate_and_fix(&mut self, total_clusters: u32) {
-        let max_valid_cluster_number = total_clusters + RESERVED_FAT_ENTRIES;
+        let max_valid_cluster_number = max_valid_cluster(total_clusters);
         if let Some(n) = self.free_cluster_count {
             if n > total_clusters {
                 warn!(
@@ -216,11 +217,6 @@ impl FsInfoSector {
                 );
                 self.free_cluster_count = None;
             }
-        }
-        // A value that cannot be true is not worth preserving; writing
-        // "unknown" over it is an improvement, not a loss.
-        if self.disk_free_cluster_count.is_some_and(|n| n > total_clusters) {
-            self.disk_free_cluster_count = None;
         }
         if let Some(n) = self.next_free_cluster {
             if n > max_valid_cluster_number {
@@ -337,16 +333,12 @@ pub struct FileSystem<IO: Read + Write + Seek, TP, OCC> {
     pub(crate) disk: RefCell<IO>,
     pub(crate) options: FsOptions<TP, OCC>,
     fat_type: FatType,
-    // `pub(crate)` for `dir`, which needs the root directory's first cluster to recognise a `..` entry pointing at it.
-    pub(crate) bpb: BiosParameterBlock,
+    bpb: BiosParameterBlock,
     first_data_sector: u32,
     root_dir_sectors: u32,
     total_clusters: u32,
     fs_info: RefCell<FsInfoSector>,
     current_status_flags: Cell<FsStatusFlags>,
-    /// Track if we have recomputed the free-cluster count ourselves. If so, we *can* write it during flush, saving the
-    /// next mount from doing this scan.
-    free_count_verified: Cell<bool>,
 }
 
 /// The underlying storage device
@@ -438,7 +430,6 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
             total_clusters,
             fs_info: RefCell::new(fs_info),
             current_status_flags: Cell::new(status_flags),
-            free_count_verified: Cell::new(false),
         })
     }
 
@@ -475,7 +466,15 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
     /// Clusters 0 and 1 are reserved and the highest usable cluster is `total_clusters + 1`, so anything outside that
     /// range reached us from a corrupt FAT entry or directory entry.
     pub(crate) fn is_valid_cluster(&self, cluster: u32) -> bool {
-        (RESERVED_FAT_ENTRIES..self.total_clusters + RESERVED_FAT_ENTRIES).contains(&cluster)
+        (RESERVED_FAT_ENTRIES..=max_valid_cluster(self.total_clusters)).contains(&cluster)
+    }
+
+    /// Whether `cluster` names the root directory of this volume.
+    ///
+    /// On FAT32 the root is an ordinary cluster chain and the BPB gives its first cluster. FAT12 and FAT16 keep the
+    /// root in a fixed region outside the data area, which has no cluster number of its own
+    pub(crate) fn is_root_dir(&self, cluster: u32) -> bool {
+        cluster == self.bpb.root_dir_first_cluster
     }
 
     fn sector_from_cluster(&self, cluster: u32) -> u32 {
@@ -567,8 +566,9 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
     ///
     /// `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub async fn read_status_flags(&self) -> Result<FsStatusFlags, Error<IO::Error>> {
-        // The live flag, not `bpb`'s mount-time snapshot: `set_dirty_flag` updates the former, so reading the latter
-        // reports a volume as dirty for the rest of the session even once it has been cleared.
+        // `bpb` holds the flags as they stood at mount. `set_dirty_flag` writes any change to the boot sector and
+        // records it here, so this is the state the volume is actually in; the snapshot would miss a dirty bit this
+        // session has already written.
         let boot_status = self.current_status_flags.get();
         let fat_status = read_fat_flags(&mut self.fat_slice(), self.fat_type).await?;
         Ok(FsStatusFlags {
@@ -579,10 +579,8 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
 
     /// Returns filesystem statistics like number of total and free clusters.
     ///
-    /// For FAT32, the free cluster is read from the FS Info sector if available and the volume was mounted cleanly.
-    /// Otherwise it is computed by scanning the whole FAT, then cached in memory and written back to FS Info
-    /// immediately so that later mounts do not repeat the scan. For other FAT variants number is computed on the first
-    /// call to this method and cached for later use.
+    /// For FAT32 volumes number of free clusters from the FS Information Sector is returned (may be incorrect).
+    /// For other FAT variants number is computed on the first call to this method and cached for later use.
     ///
     /// # Errors
     ///
@@ -603,14 +601,9 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
 
     /// Forces free clusters recalculation.
     async fn recalc_free_clusters(&self) -> Result<u32, Error<IO::Error>> {
-        let free_cluster_count = {
-            let mut fat = self.fat_slice();
-            count_free_clusters(&mut fat, self.fat_type, self.total_clusters).await?
-        };
+        let mut fat = self.fat_slice();
+        let free_cluster_count = count_free_clusters(&mut fat, self.fat_type, self.total_clusters).await?;
         self.fs_info.borrow_mut().set_free_cluster_count(free_cluster_count);
-        self.free_count_verified.set(true);
-        // Persist straight away rather than waiting for the next `flush`.
-        self.flush_fs_info().await?;
         Ok(free_cluster_count)
     }
 
@@ -627,19 +620,11 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
 
     /// Flushes any in memory state to the filesystem
     ///
-    /// Updates the FS Information Sector if needed and clears the dirty flag.
-    ///
-    /// # Errors
-    ///
-    /// `Error::Io` will be returned if the underlying storage object returned an I/O error.
+    /// Updates the FS Information Sector if needed and clears
+    /// the dirty flag.
     pub async fn flush(&self) -> Result<(), Error<IO::Error>> {
         self.flush_fs_info().await?;
-        // A volume mounted dirty stays dirty, except if we have scanned the FAT ourselves. The scan fulfills the check
-        // the flag demanded, and clearing it avoids every future mount repeating the scan.
-        let mounted_dirty = self.bpb.status_flags().dirty;
-        if !mounted_dirty || self.free_count_verified.get() {
-            self.set_dirty_flag(false).await?;
-        }
+        self.set_dirty_flag(false).await?;
         Ok(())
     }
 
@@ -656,11 +641,11 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
     }
 
     pub(crate) async fn set_dirty_flag(&self, dirty: bool) -> Result<(), IO::Error> {
-        // Track the live flag state, not the mount-time snapshot in `bpb`. see notes in flush()
-        let current_flags = self.current_status_flags.get();
-        let mut flags = current_flags;
-        flags.dirty = dirty;
+        // Do not overwrite flags read from BPB on mount
+        let mut flags = self.bpb.status_flags();
+        flags.dirty |= dirty;
         // Check if flags has changed
+        let current_flags = self.current_status_flags.get();
         if flags == current_flags {
             // Nothing to do
             return Ok(());
@@ -1241,7 +1226,6 @@ pub async fn format_volume<S: ReadWriteSeek>(
         // FSInfo sector
         let fs_info_sector = FsInfoSector {
             free_cluster_count: None,
-            disk_free_cluster_count: None,
             next_free_cluster: None,
             dirty: false,
         };

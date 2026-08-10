@@ -28,10 +28,11 @@ pub(crate) enum DirRawStream<'a, IO: ReadWriteSeek, TP, OCC> {
 }
 
 impl<IO: ReadWriteSeek, TP, OCC> DirRawStream<'_, IO, TP, OCC> {
-    fn abs_pos(&self) -> Option<u64> {
+    fn abs_pos(&self) -> Result<Option<u64>, Error<IO::Error>> {
         match self {
             DirRawStream::File(file) => file.abs_pos(),
-            DirRawStream::Root(slice) => Some(slice.abs_pos()),
+            // A FAT12/16 root is a fixed region, so its position needs no cluster lookup and cannot be corrupt.
+            DirRawStream::Root(slice) => Ok(Some(slice.abs_pos())),
         }
     }
 
@@ -424,10 +425,7 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
                 // > directory. If the parent of the current directory is the root directory (see below), the
                 // > DIR_FstClusLO and DIR_FstClusHI contents must be set to 0.
                 //
-                let parent_cluster = e
-                    .stream
-                    .first_cluster()
-                    .filter(|&cluster| cluster != self.fs.bpb.root_dir_first_cluster);
+                let parent_cluster = e.stream.first_cluster().filter(|&c| !self.fs.is_root_dir(c));
                 let sfn_entry = e.create_sfn_entry(dotdot_sfn, FileAttributes::DIRECTORY, parent_cluster);
                 dir.write_entry("..", sfn_entry).await?;
                 Ok(dir)
@@ -725,7 +723,7 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
         // the case because an entry was just written
         // Note: if current position is on the cluster boundary then a position in the cluster containing the entry is
         // returned
-        let end_abs_pos = stream.abs_pos().unwrap();
+        let end_abs_pos = stream.abs_pos()?.unwrap();
         // Calculate SFN entry start position on the storage
         let start_abs_pos = end_abs_pos - u64::from(DIR_ENTRY_SIZE);
         // return new logical entry descriptor
@@ -816,7 +814,7 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC> DirIter<'a, IO, TP, OCC> {
                     // the case because an entry was just read
                     // Note: if current position is on the cluster boundary then a position in the cluster containing the entry is
                     // returned
-                    let end_abs_pos = self.stream.abs_pos().unwrap();
+                    let end_abs_pos = self.stream.abs_pos()?.unwrap();
                     // Calculate SFN entry start position on the storage
                     let abs_pos = end_abs_pos - u64::from(DIR_ENTRY_SIZE);
                     // Check if LFN checksum is valid

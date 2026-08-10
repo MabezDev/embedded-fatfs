@@ -142,12 +142,15 @@ impl Write for MemDisk {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         let mut data = self.buffer.borrow_mut();
         let pos = usize::try_from(self.pos).unwrap();
-        if pos + buf.len() > data.len() {
-            data.resize(pos + buf.len(), 0);
+        // A card has a fixed size: a write starting past the end fails, and one running off the end is short. Growing
+        // the buffer instead would swallow exactly the out-of-range write these tests exist to catch.
+        if pos >= data.len() {
+            return Err(embedded_io_async::ErrorKind::InvalidInput);
         }
-        data[pos..pos + buf.len()].copy_from_slice(buf);
-        self.pos += buf.len() as u64;
-        Ok(buf.len())
+        let n = buf.len().min(data.len() - pos);
+        data[pos..pos + n].copy_from_slice(&buf[..n]);
+        self.pos += n as u64;
+        Ok(n)
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
@@ -163,7 +166,9 @@ impl Seek for MemDisk {
             SeekFrom::End(n) => len + n,
             SeekFrom::Current(n) => self.pos as i64 + n,
         };
-        if new < 0 {
+        // Seeking to the end is how `format_volume` measures the device, so `new == len` is legal; anything beyond it
+        // is off the card.
+        if new < 0 || new > len {
             return Err(embedded_io_async::ErrorKind::InvalidInput);
         }
         self.pos = new as u64;

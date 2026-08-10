@@ -41,7 +41,5 @@ pub async fn make_cursor_fs(storage: Vec<u8>, format_opts: FormatVolumeOptions) 
     let options = FsOptions::new()
         .time_provider(ChronoTimeProvider::new())
         .oem_cp_converter(LossyOemCpConverter::new());
-    embedded_fatfs::FileSystem::new(buf, options)
-        .await
-        .expect("mount")
+    embedded_fatfs::FileSystem::new(buf, options).await.expect("mount")
 }
