@@ -453,6 +453,11 @@ async fn test_rename_file_fat32() {
     call_with_fs(test_rename_file, FAT32_IMG, 6).await
 }
 
+/// A simple wrapper around `mem::forget`, to make clear why we drop the FS.
+const fn drop_fs_leaving_it_dirty<T>(fs: T) {
+    core::mem::forget(fs)
+}
+
 async fn test_dirty_flag(tmp_path: String) {
     // Open filesystem, make change, and forget it - should become dirty
     let fs = open_filesystem_rw(tmp_path.clone()).await;
@@ -460,7 +465,7 @@ async fn test_dirty_flag(tmp_path: String) {
     assert_eq!(status_flags.dirty(), false);
     assert_eq!(status_flags.io_error(), false);
     fs.root_dir().create_file("abc.txt").await.unwrap();
-    core::mem::forget(fs);
+    drop_fs_leaving_it_dirty(fs);
     // Check if volume is dirty now
     let fs = open_filesystem_rw(tmp_path.clone()).await;
     let status_flags = fs.read_status_flags().await.unwrap();
@@ -497,7 +502,7 @@ async fn test_dirty_flag_survives_stats(tmp_path: String) {
     // Leave the volume dirty by dropping a mutated filesystem without unmounting
     let fs = open_filesystem_rw(tmp_path.clone()).await;
     fs.root_dir().create_file("abc.txt").await.unwrap();
-    core::mem::forget(fs);
+    drop_fs_leaving_it_dirty(fs);
 
     let fs = open_filesystem_rw(tmp_path.clone()).await;
     assert_eq!(fs.read_status_flags().await.unwrap().dirty(), true);
@@ -542,7 +547,7 @@ async fn test_dirty_flag_is_also_set_in_backup_boot_sector(tmp_path: String) {
     // Leave the volume dirty by dropping a mutated filesystem without unmounting
     let fs = open_filesystem_rw(tmp_path.clone()).await;
     fs.root_dir().create_file("abc.txt").await.unwrap();
-    core::mem::forget(fs);
+    drop_fs_leaving_it_dirty(fs);
 
     let after = fs::read(&tmp_path).await.unwrap();
     assert_eq!(after[DIRTY_FLAG] & 1, 1, "the boot sector was not marked dirty");
