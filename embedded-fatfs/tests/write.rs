@@ -526,6 +526,39 @@ async fn test_dirty_flag_survives_stats_fat32() {
     call_with_tmp_img(test_dirty_flag_survives_stats, FAT32_IMG, 9).await
 }
 
+/// The dirty flag has to be set in both copies of the boot sector.
+async fn test_dirty_flag_is_also_set_in_backup_boot_sector(tmp_path: String) {
+    /// Offset of the dirty flag within a FAT32 boot sector, and of `BPB_BkBootSec` within the BPB.
+    const DIRTY_FLAG: usize = 0x41;
+    const BACKUP_BOOT_SECTOR: usize = 50;
+
+    let before = fs::read(&tmp_path).await.unwrap();
+    let bytes_per_sector = u16::from_le_bytes([before[11], before[12]]) as usize;
+    let backup =
+        u16::from_le_bytes([before[BACKUP_BOOT_SECTOR], before[BACKUP_BOOT_SECTOR + 1]]) as usize * bytes_per_sector;
+    assert_ne!(backup, 0, "the fixture should have a backup boot sector");
+    assert_eq!(before[DIRTY_FLAG] & 1, 0, "the fixture should start clean");
+
+    // Leave the volume dirty by dropping a mutated filesystem without unmounting
+    let fs = open_filesystem_rw(tmp_path.clone()).await;
+    fs.root_dir().create_file("abc.txt").await.unwrap();
+    core::mem::forget(fs);
+
+    let after = fs::read(&tmp_path).await.unwrap();
+    assert_eq!(after[DIRTY_FLAG] & 1, 1, "the boot sector was not marked dirty");
+    assert_eq!(
+        after[backup + DIRTY_FLAG] & 1,
+        1,
+        "the backup boot sector still says the volume is clean"
+    );
+}
+
+/// FAT32 only, FAT12 and FAT16 have no backup boot sector to disagree with.
+#[tokio::test]
+async fn test_dirty_flag_is_also_set_in_backup_boot_sector_fat32() {
+    call_with_tmp_img(test_dirty_flag_is_also_set_in_backup_boot_sector, FAT32_IMG, 10).await
+}
+
 async fn test_multiple_files_in_directory(fs: FileSystem) {
     let dir = fs.root_dir().create_dir("/TMP").await.unwrap();
     for i in 0..8 {

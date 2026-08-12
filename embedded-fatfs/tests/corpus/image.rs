@@ -1,8 +1,6 @@
 //! A raw, library-independent view of a FAT32 image held in memory.
 //!
-//! Everything here works on bytes and BPB-derived geometry only. It deliberately
-//! does *not* use `embedded_fatfs` to locate structures, so a bug in the library
-//! cannot hide a bug in a corpus image (and vice versa).
+//! Everything here works on bytes and BPB-derived geometry only, to avoid using our code to test itself.
 
 use std::fmt::Write as _;
 use std::ops::Range;
@@ -131,7 +129,7 @@ impl Fat32Image {
     ///
     /// # Panics
     ///
-    /// Panics if `data` is not a FAT32 volume.
+    /// Panics if `data` is not parsed as a FAT32 volume.
     pub fn parse(data: Vec<u8>) -> Self {
         let rd_u16 = |off: usize| u16::from_le_bytes([data[off], data[off + 1]]);
         let rd_u32 = |off: usize| u32::from_le_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]]);
@@ -251,15 +249,15 @@ impl Fat32Image {
 
     /// Follow the cluster chain starting at `first` in FAT copy 0.
     ///
-    /// Stops at a free entry, an end-of-chain marker, an out-of-range link, or
-    /// after `total_clusters` hops (so a loop cannot hang the generator).
+    /// Stops at a free entry, an end-of-chain marker, an out-of-range link, or after `total_clusters` hops (so a loop
+    /// cannot hang the generator).
     pub fn chain(&self, first: u32) -> Vec<u32> {
         let mut out = Vec::new();
         let mut cluster = first;
         while (2..=self.geom.max_valid_cluster()).contains(&cluster) {
             out.push(cluster);
             if out.len() as u32 > self.geom.total_clusters {
-                panic!("cluster chain from {} does not terminate", first);
+                panic!("cluster chain from {} is cyclic and/or does not terminate", first);
             }
             let next = self.fat_get(0, cluster);
             if next < 2 || next > self.geom.max_valid_cluster() {
@@ -356,8 +354,8 @@ impl Fat32Image {
         })
     }
 
-    /// Offsets of the run of LFN entries immediately preceding the short-name
-    /// entry at `sfn_offset`, ordered as they appear on disk.
+    /// Offsets of the run of LFN entries immediately preceding the short-name entry at `sfn_offset`, ordered as they
+    /// appear on disk.
     pub fn lfn_run(&self, dir_cluster: u32, sfn_offset: u64) -> Vec<u64> {
         let slots = self.dir_slots(dir_cluster);
         let idx = slots.iter().position(|&o| o == sfn_offset).expect("offset not in dir");
@@ -373,8 +371,8 @@ impl Fat32Image {
         out
     }
 
-    /// Offset of the first never-used slot (`name[0] == 0`) in the directory,
-    /// i.e. where a driver would append the next entry.
+    /// Offset of the first never-used slot (`name[0] == 0`) in the directory, i.e. where a driver would append the next
+    /// entry.
     pub fn first_unused_slot(&self, cluster: u32) -> u64 {
         self.dir_slots(cluster)
             .into_iter()

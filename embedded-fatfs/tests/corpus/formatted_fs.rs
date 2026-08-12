@@ -1,9 +1,7 @@
 //! Builds the known-good FAT32 volume that every corruption case starts from.
 //!
-//! The volume is built with `embedded_fatfs` itself, so it is exactly what an
-//! embedded device would have written, and it is built deterministically
-//! (`NullTimeProvider`, fixed volume id, fixed order of operations) so that
-//! byte-for-byte comparison against a repaired image is meaningful.
+//! The volume is built deterministically with `embedded_fatfs` itself, so that byte-for-byte comparison against a
+//! repaired image is meaningful.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -12,20 +10,19 @@ use embedded_fatfs::{FormatVolumeOptions, FsOptions, LossyOemCpConverter, NullTi
 use embedded_io_async::{ErrorType, Read, Seek, SeekFrom, Write};
 
 use super::image::Fat32Image;
+use super::util::FileSystem;
 
-/// Sector size of every image in the corpus.
+// Sector size of every image in the corpus.
 pub const BYTES_PER_SECTOR: u16 = 512;
-/// One sector per cluster keeps the images small while still giving multi-cluster
-/// files: a "3 cluster" file is only 1536 bytes.
+// One sector per cluster keeps the images small while still giving multi-cluster files
 pub const BYTES_PER_CLUSTER: u32 = 512;
-/// 40 MiB is the smallest round size that still yields the >= 65525 clusters a
-/// FAT32 volume requires at this cluster size.
+// 40 MiB is the smallest FAT32 filesystem with one-sector clusters.
 pub const TOTAL_BYTES: u64 = 40 * 1024 * 1024;
 
 /// Contents of the files in the pristine volume: (path, length in bytes).
 ///
-/// Sizes are chosen so the corpus has an exactly-one-cluster file, a
-/// multi-cluster file, a file with a partly-used last cluster, and an empty file.
+/// Sizes are chosen so the corpus has an exactly-one-cluster file, a exactly multi-cluster file, a file with a
+/// partly-used last cluster, and an empty file, and a subdirectory.
 pub const FILES: &[(&str, usize)] = &[
     ("BOOT.BIN", 1536),                // 3 clusters, exactly full
     ("LOG.TXT", 512),                  // 1 cluster, exactly full
@@ -37,8 +34,7 @@ pub const FILES: &[(&str, usize)] = &[
 /// Directories in the pristine volume, in creation order.
 pub const DIRS: &[&str] = &["DATA", "DATA/SUB"];
 
-/// Deterministic filler so a cluster mix-up shows up as wrong data rather than
-/// as more zeros.
+/// Fill each file with deterministic pseudorandom data, so a cluster mix-up shows up as an invalid data
 pub fn file_content(path: &str, len: usize) -> Vec<u8> {
     let mut state = path.bytes().fold(0x1234_5678_u32, |s, b| {
         s.rotate_left(5) ^ u32::from(b).wrapping_mul(0x9E37_79B1)
@@ -51,9 +47,12 @@ pub fn file_content(path: &str, len: usize) -> Vec<u8> {
         .collect()
 }
 
-/// Build the pristine image. Deterministic: two calls return identical bytes.
-pub async fn build() -> Fat32Image {
-    let disk = MemDisk::new(TOTAL_BYTES as usize);
+/// Format `storage` at the corpus geometry and mount it.
+///
+/// `storage` is used as given rather than zeroed, so a caller can pre-fill it with a pattern that a bug would leave
+/// visible. The returned buffer is shared with the mounted device and stays readable after `unmount` consumes it.
+pub async fn format_and_mount(storage: Vec<u8>) -> (FileSystem, Rc<RefCell<Vec<u8>>>) {
+    let disk = MemDisk::from_bytes(storage);
     let buffer = disk.buffer();
 
     let mut fmt_disk = disk.clone();
@@ -74,6 +73,12 @@ pub async fn build() -> Fat32Image {
         .time_provider(NullTimeProvider::new())
         .oem_cp_converter(LossyOemCpConverter::new());
     let fs = embedded_fatfs::FileSystem::new(disk, options).await.expect("mount");
+    (fs, buffer)
+}
+
+/// Build the pristine image.
+pub async fn build() -> Fat32Image {
+    let (fs, buffer) = format_and_mount(vec![0; TOTAL_BYTES as usize]).await;
 
     {
         let root = fs.root_dir();
@@ -98,8 +103,8 @@ pub async fn build() -> Fat32Image {
     Fat32Image::parse(data)
 }
 
-/// An in-memory block device. Unlike a `Cursor`, the buffer is shared, so it can
-/// still be read after `FileSystem::unmount` consumes the device.
+/// An in-memory block device. Unlike a `Cursor`, the buffer is shared, so it can still be read after
+/// `FileSystem::unmount` consumes the device.
 #[derive(Clone)]
 pub struct MemDisk {
     buffer: Rc<RefCell<Vec<u8>>>,
@@ -142,8 +147,6 @@ impl Write for MemDisk {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         let mut data = self.buffer.borrow_mut();
         let pos = usize::try_from(self.pos).unwrap();
-        // A card has a fixed size: a write starting past the end fails, and one running off the end is short. Growing
-        // the buffer instead would swallow exactly the out-of-range write these tests exist to catch.
         if pos >= data.len() {
             return Err(embedded_io_async::ErrorKind::InvalidInput);
         }

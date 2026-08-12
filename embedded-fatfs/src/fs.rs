@@ -658,9 +658,21 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
         } else {
             0x025
         };
+        // FAT32 keeps a second copy of the boot sector, with the flag at the same offset within it. Updating only the
+        // first leaves the two disagreeing about whether the volume is dirty. `backup_boot_sector` is 0 when there is
+        // no second copy, and only FAT32 has one.
+        let backup_offset = match self.bpb.backup_boot_sector() {
+            0 => None,
+            sector if self.fat_type() == FatType::Fat32 => Some(self.offset_from_sector(sector) + offset),
+            _ => None,
+        };
         let mut disk = self.disk.borrow_mut();
         disk.seek(io::SeekFrom::Start(offset)).await?;
         disk.write_u8(encoded).await?;
+        if let Some(backup_offset) = backup_offset {
+            disk.seek(io::SeekFrom::Start(backup_offset)).await?;
+            disk.write_u8(encoded).await?;
+        }
         disk.flush().await?;
         self.current_status_flags.set(flags);
         Ok(())

@@ -1,13 +1,17 @@
-mod formatted_fs;
+use std::io;
 
-use embedded_fatfs::FormatVolumeOptions;
+use embedded_fatfs::{ChronoTimeProvider, LossyOemCpConverter};
 use embedded_io_async::Write;
 
 const KB: u64 = 1024;
 const MB: u64 = KB * 1024;
 const TEST_STR: &str = "Hi there Rust programmer!\n";
 
-type FileSystem = formatted_fs::CursorFs;
+type FileSystem = embedded_fatfs::FileSystem<
+    embedded_io_adapters::tokio_1::FromTokio<tokio::io::BufStream<std::io::Cursor<Vec<u8>>>>,
+    ChronoTimeProvider,
+    LossyOemCpConverter,
+>;
 
 async fn basic_fs_test(fs: &FileSystem) {
     let stats = fs.stats().await.expect("stats");
@@ -86,10 +90,19 @@ async fn basic_fs_test(fs: &FileSystem) {
     assert_eq!(filenames, ["subdir1", "new-name.txt"]);
 }
 
-async fn test_format_fs(opts: FormatVolumeOptions, total_bytes: u64) -> FileSystem {
+async fn test_format_fs(opts: embedded_fatfs::FormatVolumeOptions, total_bytes: u64) -> FileSystem {
     let _ = env_logger::builder().is_test(true).try_init();
-    let storage = vec![0xD1_u8; total_bytes as usize];
-    let fs = formatted_fs::make_cursor_fs(storage, opts).await;
+    // Init storage to 0xD1 bytes (value has been choosen to be parsed as normal file)
+    let storage_vec: Vec<u8> = vec![0xD1_u8; total_bytes as usize];
+    let storage_cur = io::Cursor::new(storage_vec);
+    let mut buffered_stream = embedded_io_adapters::tokio_1::FromTokio::new(tokio::io::BufStream::new(storage_cur));
+    embedded_fatfs::format_volume(&mut buffered_stream, opts)
+        .await
+        .expect("format volume");
+
+    let fs = embedded_fatfs::FileSystem::new(buffered_stream, embedded_fatfs::FsOptions::new())
+        .await
+        .expect("open fs");
     basic_fs_test(&fs).await;
     fs
 }

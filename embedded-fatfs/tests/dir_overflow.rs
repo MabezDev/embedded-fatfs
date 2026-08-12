@@ -1,44 +1,34 @@
-//! Test that a directory with enough entries to overflow one cluster
-//! survives the expansion and remains usable afterward.
+//! Test that large directories are handled correctly.
 //!
-//! The storage is pre-filled with a deliberately adversarial pattern:
-//! every 32-byte block looks like a valid, non-deleted SFN directory
-//! entry.  Any failure to zero a newly-allocated directory cluster is
-//! therefore caught — the iterator returns garbage entries alongside
-//! the real ones.
+//! The storage is pre-filled with a deliberately adversarial pattern: every 32-byte block looks like a valid,
+//! non-deleted SFN directory entry. Any failure to zero a newly-allocated directory cluster is therefore caught as
+//! erroneous additonal entries.
+//!
+//! Each case runs the same procedure over a directory at a different depth. The root directory is the one without an
+//! entry of its own recording that it is a directory, so it has to be recognised by its cluster number instead.
+//!
+//! Every case ends with a full `corpus::verify::check`, which also hands the volume to `fsck.fat`.
 
-mod formatted_fs;
+mod corpus;
 
 use std::io::Write as _;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use embedded_fatfs::FormatVolumeOptions;
+use corpus::formatted_fs::{format_and_mount, BYTES_PER_CLUSTER, TOTAL_BYTES};
+use corpus::Fat32Image;
 use embedded_io_async::{Read, Write};
 
-// One sector per cluster, so a directory overflows after a handful of files and
-// the whole volume still fits comfortably in memory.
-//
-// The volume has to be big enough that the cluster count clears FAT32's 65525
-// minimum, or formatting quietly gives us FAT16 instead: `fat_type` is a hint
-// that geometry overrides, not a demand. It matters because the FAT16 root
-// directory is a fixed-size region rather than a cluster chain, and cannot
-// overflow at all — the root test below would pass without testing anything. At
-// 512-byte clusters, 40 MiB leaves about 81800 clusters, well clear of the line.
-const CLUSTER: u32 = 512;
-const VOLUME_BYTES: u64 = 40 * 1024 * 1024;
 /// The 28-character names below need 3 LFN entries plus the short-name entry.
 const SLOTS_PER_FILE: usize = 4;
-const FILES_PER_CLUSTER: usize = CLUSTER as usize / (32 * SLOTS_PER_FILE);
-/// Enough to fill three clusters, so the directory grows more than once.
-const ROOT_FILE_COUNT: usize = FILES_PER_CLUSTER * 3;
-/// `.` and `..` take a slot each out of a subdirectory's first cluster, which at
-/// this cluster size is not enough to change the file count.
-const SUBDIR_FILE_COUNT: usize = ROOT_FILE_COUNT;
+const FILES_PER_CLUSTER: usize = BYTES_PER_CLUSTER as usize / (32 * SLOTS_PER_FILE);
+/// Enough to fill three clusters, so every directory under test grows more than once. A subdirectory also spends two
+/// slots on `.` and `..`, which only makes it overflow sooner.
+const FILE_COUNT: usize = FILES_PER_CLUSTER * 3;
 
 /// Fill every 32-byte block with a plausible-looking SFN entry.
 ///
 /// If a directory cluster is not zeroed, the iterator will see these as
-/// extra files with names like `RUBBISH 001`, `RUBBISH 002`, …
+/// extra files with names like `RUBBISH 001`, `RUBBISH 002`,
 fn adversarial_fill(buf: &mut [u8]) {
     let mut n: u32 = 1;
     for chunk in buf.chunks_mut(32) {
@@ -100,34 +90,44 @@ async fn check_files_readable(
     }
 }
 
-#[tokio::test]
-async fn subdirectory_overflow_zeroes_second_cluster() {
+/// Overflow the directory at `from` and check that nothing but the files we wrote comes back.
+///
+/// `from` is an absolute path; `/` is the root directory. Every component is created first, so `/a/b` is a directory
+/// inside a directory rather than one with a slash in its name.
+async fn test_directory_is_zeroed(from: &str) {
     let _ = env_logger::builder().is_test(true).try_init();
 
-    let opts = FormatVolumeOptions::new()
-        .fat_type(embedded_fatfs::FatType::Fat32)
-        .bytes_per_cluster(CLUSTER);
-
     let storage = {
-        let mut v = vec![0u8; VOLUME_BYTES as usize];
+        let mut v = vec![0u8; TOTAL_BYTES as usize];
         adversarial_fill(&mut v);
         v
     };
-    let fs = formatted_fs::make_cursor_fs(storage, opts).await;
+    let (fs, buffer) = format_and_mount(storage).await;
 
-    assert_eq!(fs.cluster_size(), CLUSTER);
+    assert_eq!(fs.cluster_size(), BYTES_PER_CLUSTER);
     assert_eq!(
         fs.fat_type(),
         embedded_fatfs::FatType::Fat32,
-        "the root directory only grows on FAT32; on FAT16 this test proves nothing"
+        "a FAT16 root is a fixed-size region that cannot overflow at all, so the root case would prove nothing"
     );
 
     let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-
     let root = fs.root_dir();
-    let dir = root.create_dir("overflow_dir").await.expect("create_dir");
 
-    for i in 0..SUBDIR_FILE_COUNT {
+    // `create_dir` resolves a path but does not create the parents along it, so walk them.
+    let mut built = String::new();
+    for component in from.split('/').filter(|c| !c.is_empty()) {
+        built.push('/');
+        built.push_str(component);
+        root.create_dir(&built).await.expect("create_dir");
+    }
+    let dir = if built.is_empty() {
+        root.clone()
+    } else {
+        root.open_dir(&built).await.expect("open_dir")
+    };
+
+    for i in 0..FILE_COUNT {
         let name = format!("FILE_{i:05}_OVERFLOW_TEST.DAT");
         let mut f = dir.create_file(&name).await.expect("create_file");
         let content = format!("{ts} file_{i:05}\n");
@@ -138,73 +138,47 @@ async fn subdirectory_overflow_zeroes_second_cluster() {
     let names = count_entries(&dir).await;
     assert_eq!(
         names.len(),
-        SUBDIR_FILE_COUNT,
-        "should have exactly {SUBDIR_FILE_COUNT} files (no adversarial garbage)"
+        FILE_COUNT,
+        "{from} should hold exactly {FILE_COUNT} files (no adversarial garbage)"
     );
     for (i, name) in names.iter().enumerate() {
         let expected = format!("FILE_{i:05}_OVERFLOW_TEST.DAT");
-        assert_eq!(name, &expected, "wrong name at index {i}");
+        assert_eq!(name, &expected, "wrong name at index {i} in {from}");
     }
-    check_files_readable(&root, "overflow_dir", &names, ts, SUBDIR_FILE_COUNT).await;
+    check_files_readable(&root, &built, &names, ts, FILE_COUNT).await;
 
+    // The directory is still usable once it has grown.
     dir.create_file("EXTRA_AFTER_OVERFLOW.DAT")
         .await
         .expect("create after overflow");
-    let names2 = count_entries(&dir).await;
-    assert_eq!(names2.len(), SUBDIR_FILE_COUNT + 1);
-    assert!(names2.contains(&"EXTRA_AFTER_OVERFLOW.DAT".to_string()));
+    let after = count_entries(&dir).await;
+    assert_eq!(after.len(), FILE_COUNT + 1);
+    assert!(after.contains(&"EXTRA_AFTER_OVERFLOW.DAT".to_string()));
+
+    drop(dir);
+    drop(root);
+    fs.unmount().await.expect("unmount");
+    let img = Fat32Image::parse(buffer.borrow().clone());
+    let problems = corpus::verify::check(&img);
+    assert!(problems.is_empty(), "{from} left the volume unsound: {problems:#?}");
 }
 
 #[tokio::test]
-async fn root_directory_overflow_zeroes_second_cluster() {
-    let _ = env_logger::builder().is_test(true).try_init();
+async fn the_root_directory_is_zeroed() {
+    test_directory_is_zeroed("/").await;
+}
 
-    let opts = FormatVolumeOptions::new()
-        .fat_type(embedded_fatfs::FatType::Fat32)
-        .bytes_per_cluster(CLUSTER);
+#[tokio::test]
+async fn a_subdirectory_is_zeroed() {
+    test_directory_is_zeroed("/subdir").await;
+}
 
-    let storage = {
-        let mut v = vec![0u8; VOLUME_BYTES as usize];
-        adversarial_fill(&mut v);
-        v
-    };
-    let fs = formatted_fs::make_cursor_fs(storage, opts).await;
+#[tokio::test]
+async fn a_nested_subdirectory_is_zeroed() {
+    test_directory_is_zeroed("/sub/subdir").await;
+}
 
-    assert_eq!(fs.cluster_size(), CLUSTER);
-    assert_eq!(
-        fs.fat_type(),
-        embedded_fatfs::FatType::Fat32,
-        "the root directory only grows on FAT32; on FAT16 this test proves nothing"
-    );
-
-    let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-
-    let root = fs.root_dir();
-
-    for i in 0..ROOT_FILE_COUNT {
-        let name = format!("ROOT_{i:05}_OVERFLOW_TEST.DAT");
-        let mut f = root.create_file(&name).await.expect("create_file");
-        let content = format!("{ts} file_{i:05}\n");
-        f.write_all(content.as_bytes()).await.unwrap();
-        f.flush().await.unwrap();
-    }
-
-    let names = count_entries(&root).await;
-    assert_eq!(
-        names.len(),
-        ROOT_FILE_COUNT,
-        "should have exactly {ROOT_FILE_COUNT} files (no adversarial garbage)"
-    );
-    for (i, name) in names.iter().enumerate() {
-        let expected = format!("ROOT_{i:05}_OVERFLOW_TEST.DAT");
-        assert_eq!(name, &expected, "wrong name at index {i}");
-    }
-    check_files_readable(&root, "", &names, ts, ROOT_FILE_COUNT).await;
-
-    root.create_file("ROOT_EXTRA_AFTER_OVERFLOW.DAT")
-        .await
-        .expect("create after overflow");
-    let names2 = count_entries(&root).await;
-    assert_eq!(names2.len(), ROOT_FILE_COUNT + 1);
-    assert!(names2.contains(&"ROOT_EXTRA_AFTER_OVERFLOW.DAT".to_string()));
+#[tokio::test]
+async fn a_deeply_nested_subdirectory_is_zeroed() {
+    test_directory_is_zeroed("/sub/sub/sub/subdir").await;
 }

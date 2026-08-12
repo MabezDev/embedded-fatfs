@@ -1,19 +1,23 @@
 //! A reference consistency checker for FAT32 images.
 //!
-//! This is the *detection* half of an fsck, written for clarity rather than for
-//! an embedded budget — it keeps a `HashSet` of every allocated cluster, which
-//! is exactly the cost a real lightweight checker has to avoid. It exists to
-//! keep the corpus honest: every `fixed` image must come back clean, and every
-//! `corrupt` image must not. It also serves as a precise statement of what the
-//! repaired volume is required to satisfy.
 
 use std::collections::HashSet;
 use std::fmt;
+use std::io::Write as _;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
+use std::sync::OnceLock;
+
+use regex::Regex;
+use tempfile::NamedTempFile;
 
 use super::image::{dirent, lfn_checksum, Fat32Image, FAT_BAD, FAT_FREE};
 
 /// End-of-chain markers, as a range.
 const EOC_MIN: u32 = 0x0FFF_FFF8;
+/// The two flag bits a driver may borrow from FAT[1]: clear means dirty / hard error respectively.
+const CLN_SHUT_BIT: u32 = 0x0800_0000;
+const HRD_ERR_BIT: u32 = 0x0400_0000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Problem {
@@ -53,6 +57,10 @@ pub enum Problem {
     },
     /// FSInfo's free-cluster count disagrees with the FAT.
     FsInfoFreeCount { found: u32, expected: u32 },
+    /// `fsck.fat` found something the checks above did not.
+    FsckError { status: Option<i32>, output: String },
+    /// `fsck.fat` could not be run, and `EMBEDDED_FATFS_REQUIRE_FSCK` said it had to be.
+    FsckUnavailable { reason: String },
 }
 
 impl fmt::Display for Problem {
@@ -62,6 +70,12 @@ impl fmt::Display for Problem {
 }
 
 /// Check an image and return everything wrong with it.
+///
+/// This is the detection half of fsck/repair. It walks the filesystem, recording all used clusters (in a simple hash).
+///
+/// Finally, it hands the image to `fsck.fat -n` via a tempfile, on unix hosts with dosfstools installed. It then
+/// parses the fsck result, and ensures that fsck agrees the volume is valid, catching any issues we may have missed (or
+/// bugs (either here, or in the corpus image creation code).
 pub fn check(img: &Fat32Image) -> Vec<Problem> {
     let mut problems = Vec::new();
     let geom = *img.geom();
@@ -76,8 +90,10 @@ pub fn check(img: &Fat32Image) -> Vec<Problem> {
             expected: expect0,
         });
     }
+    // FAT[1] is an EOC mark, except that a driver may use its top two bits to record that the volume is dirty or has
+    // had a hard error (MS FAT spec pg. 19). Those are mount state, not corruption, so put them back before comparing.
     let found1 = img.fat_get(0, 1);
-    if found1 < EOC_MIN {
+    if found1 | CLN_SHUT_BIT | HRD_ERR_BIT < EOC_MIN {
         problems.push(Problem::ReservedFatEntry {
             index: 1,
             found: found1,
@@ -126,8 +142,136 @@ pub fn check(img: &Fat32Image) -> Vec<Problem> {
         problems.push(Problem::FsInfoFreeCount { found, expected });
     }
 
+    problems.extend(fsck_fat(img));
+
     problems
 }
+
+// ####################################################################################################################
+//                                               FSCK.fat HARNESS
+// ####################################################################################################################
+
+/// Where `fsck.fat` might be, in the order worth trying.
+///
+/// Many distros keep fsck in `/sbin` or `/usr/sbin`, which are typically not on `$PATH` for an ordinary user.
+const FSCK_CANDIDATES: &[&str] = &[
+    "fsck.fat",
+    "/sbin/fsck.fat",
+    "/usr/sbin/fsck.fat",
+    "fsck.vfat",
+    "/sbin/fsck.vfat",
+    "/usr/sbin/fsck.vfat",
+];
+
+/// If this env var is set, we fail if we don't find an fsck.fat binary. For CI
+const REQUIRE_ENV: &str = "EMBEDDED_FATFS_REQUIRE_FSCK";
+
+/// The first binary that runs, resolved once per test binary.
+fn fsck_path() -> Option<&'static Path> {
+    static PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
+    PATH.get_or_init(|| {
+        FSCK_CANDIDATES
+            .iter()
+            .find(|candidate| Command::new(candidate).arg("-V").output().is_ok())
+            .map(PathBuf::from)
+    })
+    .as_deref()
+}
+
+/// Write `img` to temp file, and run `fsck.fat -n`.
+///
+/// Returns `Result` to simplify error handling with ?
+fn run_fsck(fsck: &Path, img: &Fat32Image) -> Result<Output, String> {
+    let mut image = NamedTempFile::new().map_err(|e| format!("could not create a temporary image: {e}"))?;
+    image
+        .write_all(img.as_bytes())
+        .map_err(|e| format!("could not write {}: {e}", image.path().display()))?;
+    Command::new(fsck)
+        .arg("-n")
+        .arg(image.path())
+        .output()
+        .map_err(|e| format!("{} did not run: {e}", fsck.display()))
+}
+
+/// Check `img` with an external call to `fsck.fat -n`
+///
+/// `-n` prevents fsck.fat from writing to `img`.
+pub fn fsck_fat(img: &Fat32Image) -> Option<Problem> {
+    let Some(fsck) = fsck_path() else {
+        return std::env::var_os(REQUIRE_ENV)
+            .is_some()
+            .then(|| Problem::FsckUnavailable {
+                reason: format!("none of {:?} could be run; is dosfstools installed?", FSCK_CANDIDATES),
+            });
+    };
+
+    let out = match run_fsck(fsck, img) {
+        Ok(out) => out,
+        Err(reason) => return Some(Problem::FsckUnavailable { reason }),
+    };
+
+    // exit 2 means fsck rejected our invocation and never looked at the filesystem
+    match out.status.code() {
+        Some(0) => return None,
+        Some(2) => {
+            return Some(Problem::FsckUnavailable {
+                reason: format!("{} usage error: {}", fsck.display(), get_cmd_output(&out)),
+            })
+        }
+        _ => {} // Error found, parse below
+    }
+
+    let report = get_cmd_output(&out);
+    if only_expected_fsck_lines(&report) {
+        return None;
+    }
+    // Report everything fsck said, not just the lines that decided the verdict.
+    Some(Problem::FsckError {
+        status: out.status.code(),
+        output: report,
+    })
+}
+
+/// Every line `fsck.fat` may print that is not evidence of a broken volume, and why.
+///
+/// Adding to this list means deciding that fsck's objection is wrong, or that it is complaining about something this
+/// crate does deliberately, so be careful. Also, expect this to break if they change their error messages (sorry!)
+const EXPECTED_LINES: &[&str] = &[
+    r"^fsck\.fat .*$",                       // Version banner
+    r"^.+: \d+ files, \d+/\d+ clusters$",    // Closing summary line
+    r"^Leaving filesystem unchanged\.$",     // `-n` confirming it wrote nothing, printed whenever there was to report.
+    r"^Dirty bit is set\..*$",               // The dirty flag is set, which these tests set on purpose.
+    r"^Automatically removing dirty bit\.$", // fsck's follow-on to the line above
+    // An unknown free-cluster count, written when we don't trust it. The word boundary matters: "Free cluster summary
+    // wrong" is FSInfo disagreeing with the FAT, and must still fail.
+    r"^Free cluster summary uninitialized\b.*$",
+];
+
+/// Whether everything fsck printed is one of the [`EXPECTED_LINES`]
+fn only_expected_fsck_lines(report: &str) -> bool {
+    static EXPECTED: OnceLock<Vec<Regex>> = OnceLock::new();
+    let expected = EXPECTED.get_or_init(|| {
+        EXPECTED_LINES
+            .iter()
+            .map(|pattern| Regex::new(pattern).expect("EXPECTED_LINES pattern does not compile"))
+            .collect()
+    });
+    report
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .all(|line| expected.iter().any(|re| re.is_match(line)))
+}
+
+fn get_cmd_output(out: &std::process::Output) -> String {
+    let mut s = String::from_utf8_lossy(&out.stdout).into_owned();
+    s.push_str(&String::from_utf8_lossy(&out.stderr));
+    s
+}
+
+// ####################################################################################################################
+//                                           Internal walker-based FSCK
+// ####################################################################################################################
 
 struct Walker<'a> {
     img: &'a Fat32Image,
@@ -138,11 +282,11 @@ struct Walker<'a> {
 impl Walker<'_> {
     /// Follow a chain, recording its clusters. Returns how many clusters it has.
     fn claim_chain(&mut self, path: &str, first: u32) -> u32 {
-        let max = self.img.geom().max_valid_cluster();
         let mut cluster = first;
         let mut count = 0;
         loop {
-            if !self.used.insert(cluster) {
+            let already_used = !self.used.insert(cluster);
+            if already_used {
                 self.problems.push(Problem::CrossLinked {
                     path: path.to_string(),
                     cluster,
@@ -152,9 +296,11 @@ impl Walker<'_> {
             count += 1;
             let value = self.img.fat_get(0, cluster);
             if value >= EOC_MIN {
+                // End of chain found, return length
                 return count;
             }
-            if value < 2 || value > max {
+            // 2 is first data cluster
+            if value < 2 || value > self.img.geom().max_valid_cluster() {
                 self.problems.push(Problem::BadLink {
                     path: path.to_string(),
                     cluster,
@@ -210,49 +356,47 @@ impl Walker<'_> {
                 continue;
             }
 
-            let first = self.img.entry_first_cluster(slot);
+            let first_cluster = self.img.entry_first_cluster(slot);
             let size = self.img.entry_size(slot);
             let is_dir = entry[dirent::ATTRS] & dirent::ATTR_DIRECTORY != 0;
 
+            // . and ..
             if raw_name[..2] == *b". " || raw_name[..2] == *b".." {
                 let is_dotdot = raw_name[1] == b'.';
                 let expected = if is_dotdot { parent } else { cluster };
-                // The spec says a `..` whose parent is the root holds 0, and
-                // that is what this library writes, but plenty of other
-                // implementations store the root's cluster number instead.
-                // Both are accepted so the corpus can be pointed at volumes
-                // this library did not create.
-                let root_alias = is_dotdot && expected == 0 && first == geom.root_cluster;
-                if first != expected && !root_alias {
+                // The spec says a `..` pointing at the root should have cluster 0, which we below pass as parent when
+                // descending from the root. We enforce this, but images from other implementations might not pass this
+                // test and be perfectly valid. But, we're only here to check our own homework...
+                if first_cluster != expected {
                     self.problems.push(Problem::WrongDotEntry {
                         path: child,
-                        found: first,
+                        found: first_cluster,
                         expected,
                     });
                 }
                 continue;
             }
 
-            if first == 0 {
+            if first_cluster == 0 {
                 if size != 0 {
                     self.problems.push(Problem::SizeWithoutCluster { path: child, size });
                 }
                 continue;
             }
-            if first < 2 || first > geom.max_valid_cluster() {
+            if first_cluster < 2 || first_cluster > geom.max_valid_cluster() {
                 self.problems.push(Problem::BadFirstCluster {
                     path: child,
-                    value: first,
+                    value: first_cluster,
                 });
                 continue;
             }
 
-            let clusters = self.claim_chain(&child, first);
+            // mark entries clusters used & get true chain length
+            let clusters = self.claim_chain(&child, first_cluster);
             if is_dir {
-                // A `..` whose parent is the root holds 0, not the root's
-                // cluster number.
-                let as_parent = if cluster == geom.root_cluster { 0 } else { cluster };
-                self.visit_dir(&child, first, as_parent);
+                // Ensure we use as parent 0 for root cluster
+                let this_dir_cluster = if cluster == geom.root_cluster { 0 } else { cluster };
+                self.visit_dir(&child, first_cluster, this_dir_cluster);
             } else {
                 let needed = size.div_ceil(geom.bytes_per_cluster());
                 if needed > clusters {
