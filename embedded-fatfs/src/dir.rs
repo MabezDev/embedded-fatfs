@@ -31,7 +31,8 @@ impl<IO: ReadWriteSeek, TP, OCC> DirRawStream<'_, IO, TP, OCC> {
     fn abs_pos(&self) -> Result<Option<u64>, Error<IO::Error>> {
         match self {
             DirRawStream::File(file) => file.abs_pos(),
-            // A FAT12/16 root is a fixed region, so its position needs no cluster lookup and cannot be corrupt.
+            // A FAT12/16 root is a fixed region, so its position needs no cluster lookup and cannot be corrupt, so can
+            // be safely wrapped in Ok()
             DirRawStream::Root(slice) => Ok(Some(slice.abs_pos())),
         }
     }

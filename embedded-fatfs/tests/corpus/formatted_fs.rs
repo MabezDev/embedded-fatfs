@@ -1,7 +1,8 @@
-//! Builds the known-good FAT32 volume that every corruption case starts from.
+//! Builds a small FAT32 volume backed by memory, for use in testing.
 //!
-//! The volume is built deterministically with `embedded_fatfs` itself, so that byte-for-byte comparison against a
-//! repaired image is meaningful.
+//! The volume is built deterministically with `embedded_fatfs`, from user-supplied memory that might be pre-filled with
+//! random or adversarial data patterns. [`build`] additonally pre-populates the FS with a few files to excercise
+//! various edge cases.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -27,6 +28,7 @@ pub const FILES: &[(&str, usize)] = &[
     ("BOOT.BIN", 1536),                // 3 clusters, exactly full
     ("LOG.TXT", 512),                  // 1 cluster, exactly full
     ("EMPTY.TXT", 0),                  // no cluster at all
+    ("HUGE.BIN", 32*1024*1024),        // a file that takes up most of the 40MiB volume
     ("DATA/READINGS.CSV", 1000),       // 2 clusters, last one partly used
     ("DATA/sensor readings.txt", 200), // 1 cluster, has LFN entries
 ];
@@ -47,10 +49,10 @@ pub fn file_content(path: &str, len: usize) -> Vec<u8> {
         .collect()
 }
 
-/// Format `storage` at the corpus geometry and mount it.
+/// Format and mount a FAT32 volume backed by `storage`
 ///
-/// `storage` is used as given rather than zeroed, so a caller can pre-fill it with a pattern that a bug would leave
-/// visible. The returned buffer is shared with the mounted device and stays readable after `unmount` consumes it.
+/// `storage` is used as given rather than zeroed, so a caller can pre-fill it with a pattern. The returned buffer is
+/// shared with the mounted device and stays readable after `unmount`
 pub async fn format_and_mount(storage: Vec<u8>) -> (FileSystem, Rc<RefCell<Vec<u8>>>) {
     let disk = MemDisk::from_bytes(storage);
     let buffer = disk.buffer();
@@ -104,7 +106,7 @@ pub async fn build() -> Fat32Image {
 }
 
 /// An in-memory block device. Unlike a `Cursor`, the buffer is shared, so it can still be read after
-/// `FileSystem::unmount` consumes the device.
+/// `FileSystem::unmount` consumes its storage.
 #[derive(Clone)]
 pub struct MemDisk {
     buffer: Rc<RefCell<Vec<u8>>>,
