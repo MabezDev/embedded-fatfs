@@ -39,9 +39,16 @@ jobs:
           cargo build -p embedded-fatfs --no-default-features --features alloc,lfn,unicode,defmt
           cargo build -p embedded-fatfs --no-default-features --features alloc,lfn,unicode,log
 
+      - name: Install dosfstools for fsck.vfat (used in tests)
+        run: sudo apt-get update && sudo apt-get install -y dosfstools
+        if: ${{ matrix.run_tests }}
+
       - name: Test embedded-fatfs
         # always supply dirty-file-panic to find internal flushing issues
         run: cargo test -p embedded-fatfs --verbose --features dirty-file-panic
+        env:
+          # Fail rather than skip if fsck.fat can't be found
+          EMBEDDED_FATFS_REQUIRE_FSCK: 1
         if: ${{ matrix.run_tests }}
 
       - name: Build embedded-partitions (all feature combinations)
