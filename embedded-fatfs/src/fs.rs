@@ -984,10 +984,14 @@ impl OemCpConverter for LossyOemCpConverter {
 }
 
 async fn write_zeros<IO: ReadWriteSeek>(disk: &mut IO, mut len: u64) -> Result<(), IO::Error> {
-    const ZEROS: [u8; 512] = [0_u8; 512];
+    // Zero buffer must live in RAM, as consts in flash aren't (necessarily) compatible with DMA, and may cause an
+    // underlying sdio peripheral to error if we pass a flash addresss directly.
+    #[repr(align(4))]
+    struct ZeroBuf([u8; 512]);
+    let zeros = ZeroBuf([0_u8; 512]);
     while len > 0 {
-        let write_size = cmp::min(len, ZEROS.len() as u64) as usize;
-        disk.write_all(&ZEROS[..write_size]).await?;
+        let write_size = cmp::min(len, zeros.0.len() as u64) as usize;
+        disk.write_all(&zeros.0[..write_size]).await?;
         len -= write_size as u64;
     }
     Ok(())
