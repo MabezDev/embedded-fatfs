@@ -458,7 +458,12 @@ const fn drop_fs_leaving_it_dirty<T>(fs: T) {
     core::mem::forget(fs)
 }
 
-async fn test_dirty_flag(tmp_path: String) {
+/// The dirty flag is set by an unclean shutdown, and only an unmount clears it.
+///
+/// Dropping the filesystem without unmounting must set the flag, remounting must not clear it, and neither rebuilding
+/// the free-cluster count nor flushing may either: a dirty mount distrusts the count in FSInfo, so `stats` scans the
+/// whole FAT to rebuild it, and that scan says nothing about the metadata the flag is actually warning about.
+async fn test_dirty_flag_survives_stats(tmp_path: String) {
     // Open filesystem, make change, and forget it - should become dirty
     let fs = open_filesystem_rw(tmp_path.clone()).await;
     let status_flags = fs.read_status_flags().await.unwrap();
@@ -466,12 +471,18 @@ async fn test_dirty_flag(tmp_path: String) {
     assert_eq!(status_flags.io_error(), false);
     fs.root_dir().create_file("abc.txt").await.unwrap();
     drop_fs_leaving_it_dirty(fs);
+
     // Check if volume is dirty now
     let fs = open_filesystem_rw(tmp_path.clone()).await;
     let status_flags = fs.read_status_flags().await.unwrap();
     assert_eq!(status_flags.dirty(), true);
     assert_eq!(status_flags.io_error(), false);
+
+    fs.stats().await.unwrap();
+    fs.flush().await.unwrap();
+    assert_eq!(fs.read_status_flags().await.unwrap().dirty(), true);
     fs.unmount().await.unwrap();
+
     // Make sure remounting does not clear the dirty flag
     let fs = open_filesystem_rw(tmp_path).await;
     let status_flags = fs.read_status_flags().await.unwrap();
@@ -480,55 +491,18 @@ async fn test_dirty_flag(tmp_path: String) {
 }
 
 #[tokio::test]
-async fn test_dirty_flag_fat12() {
-    call_with_tmp_img(test_dirty_flag, FAT12_IMG, 7).await
-}
-
-#[tokio::test]
-async fn test_dirty_flag_fat16() {
-    call_with_tmp_img(test_dirty_flag, FAT16_IMG, 7).await
-}
-
-#[tokio::test]
-async fn test_dirty_flag_fat32() {
-    call_with_tmp_img(test_dirty_flag, FAT32_IMG, 7).await
-}
-
-/// Recovering the free-cluster count does not make a dirty volume clean.
-///
-/// A dirty mount distrusts the count in FSInfo, so `stats` scans the whole FAT to rebuild it. That scan says nothing
-/// about the metadata the flag is actually warning about, so neither it nor the flush on unmount may clear the flag.
-async fn test_dirty_flag_survives_stats(tmp_path: String) {
-    // Leave the volume dirty by dropping a mutated filesystem without unmounting
-    let fs = open_filesystem_rw(tmp_path.clone()).await;
-    fs.root_dir().create_file("abc.txt").await.unwrap();
-    drop_fs_leaving_it_dirty(fs);
-
-    let fs = open_filesystem_rw(tmp_path.clone()).await;
-    assert_eq!(fs.read_status_flags().await.unwrap().dirty(), true);
-    fs.stats().await.unwrap();
-    fs.flush().await.unwrap();
-    assert_eq!(fs.read_status_flags().await.unwrap().dirty(), true);
-    fs.unmount().await.unwrap();
-
-    // And it is still set on the volume itself, not just in the handle we asked
-    let fs = open_filesystem_rw(tmp_path).await;
-    assert_eq!(fs.read_status_flags().await.unwrap().dirty(), true);
-}
-
-#[tokio::test]
 async fn test_dirty_flag_survives_stats_fat12() {
-    call_with_tmp_img(test_dirty_flag_survives_stats, FAT12_IMG, 9).await
+    call_with_tmp_img(test_dirty_flag_survives_stats, FAT12_IMG, 7).await
 }
 
 #[tokio::test]
 async fn test_dirty_flag_survives_stats_fat16() {
-    call_with_tmp_img(test_dirty_flag_survives_stats, FAT16_IMG, 9).await
+    call_with_tmp_img(test_dirty_flag_survives_stats, FAT16_IMG, 7).await
 }
 
 #[tokio::test]
 async fn test_dirty_flag_survives_stats_fat32() {
-    call_with_tmp_img(test_dirty_flag_survives_stats, FAT32_IMG, 9).await
+    call_with_tmp_img(test_dirty_flag_survives_stats, FAT32_IMG, 7).await
 }
 
 /// The dirty flag has to be set in both copies of the boot sector.

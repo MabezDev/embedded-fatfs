@@ -194,8 +194,6 @@ fn run_fsck(fsck: &Path, img: &Fat32Image) -> Result<Output, String> {
 }
 
 /// Check `img` with an external call to `fsck.fat -n`
-///
-/// `-n` prevents fsck.fat from writing to `img`.
 pub fn fsck_fat(img: &Fat32Image) -> Option<Problem> {
     let Some(fsck) = fsck_path() else {
         return std::env::var_os(REQUIRE_ENV)
@@ -222,33 +220,35 @@ pub fn fsck_fat(img: &Fat32Image) -> Option<Problem> {
     }
 
     let report = get_cmd_output(&out);
-    if only_expected_fsck_lines(&report) {
+    // len > 0 forces an empty report to be an error, to catch e.g. killed fsck.vfat
+    if report.len() > 0 && only_expected_fsck_lines(&report) {
         return None;
     }
-    // Report everything fsck said, not just the lines that decided the verdict.
     Some(Problem::FsckError {
         status: out.status.code(),
         output: report,
     })
 }
 
-/// Every line `fsck.fat` may print that is not evidence of a broken volume, and why.
+/// Ensure no line `fsck.fat` printed indidcates a broken volume.
 ///
-/// Adding to this list means deciding that fsck's objection is wrong, or that it is complaining about something this
-/// crate does deliberately, so be careful. Also, expect this to break if they change their error messages (sorry!)
-const EXPECTED_LINES: &[&str] = &[
-    r"^fsck\.fat .*$",                       // Version banner
-    r"^.+: \d+ files, \d+/\d+ clusters$",    // Closing summary line
-    r"^Leaving filesystem unchanged\.$",     // `-n` confirming it wrote nothing, printed whenever there was to report.
-    r"^Dirty bit is set\..*$",               // The dirty flag is set, which these tests set on purpose.
-    r"^Automatically removing dirty bit\.$", // fsck's follow-on to the line above
-    // An unknown free-cluster count, written when we don't trust it. The word boundary matters: "Free cluster summary
-    // wrong" is FSInfo disagreeing with the FAT, and must still fail.
-    r"^Free cluster summary uninitialized\b.*$",
-];
-
-/// Whether everything fsck printed is one of the [`EXPECTED_LINES`]
+/// There are several expected message or "error" lines printed by fsck that do no indicate an error, or at least not
+/// one we care about, so we can't just check for an empty log. We a regex allowlist to eliminate known-irrelevant
+/// erros, and assume any additional lines are due to a broken FS image.
 fn only_expected_fsck_lines(report: &str) -> bool {
+    // Adding to this list overrides fsck's objection, so only add lines verified to be harmless or deliberate. Also,
+    // expect this to break if they change their error messages (sorry!). All lines are trimmed before matching and
+    // blank lines after trimming are automatically accepted so no need for those in this list.
+    const EXPECTED_LINES: &[&str] = &[
+        r"^fsck\.fat .*$",                           // Version banner
+        r"^.+: \d+ files, \d+/\d+ clusters$",        // Closing summary line
+        r"^Leaving filesystem unchanged\.$",         // `-n` confirming it wrote nothing
+        r"^Dirty bit is set\..*$",                   // The dirty flag is set, which these tests set on purpose.
+        r"^Automatically removing dirty bit\.$",     // fsck's follow-on to the line above
+        r"^Free cluster summary uninitialized\b.*$", // An unknown free-cluster count, which we set for dirty FSes
+    ];
+
+    // Cache compiled RE in a static
     static EXPECTED: OnceLock<Vec<Regex>> = OnceLock::new();
     let expected = EXPECTED.get_or_init(|| {
         EXPECTED_LINES

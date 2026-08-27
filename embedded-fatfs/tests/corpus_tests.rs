@@ -3,11 +3,14 @@
 //! These tests ensure:
 //!
 //! * Correctness of allocation and free cluster count handling when a FS has the dirty bit set
-//! *
+//! * `..` entries pointing at the root directory name cluster 0, as the spec requires, and resolve back to it
+//! * Cluster numbers from outside the volume are rejected as `Error::CorruptedFileSystem`
 
 mod corpus;
 
-use corpus::{fsinfo, ls, mark_dirty, mount, write_a_file};
+use corpus::{fsinfo, ls, mark_dirty, mount, write_a_file, Fat32Image};
+
+use embedded_io_async::Read;
 
 /// Offsets of the two fields of interest within the FSInfo sector.
 const FREE_COUNT: u64 = 488;
@@ -32,38 +35,6 @@ async fn the_allocation_hint_advances_on_a_clean_volume() {
         "hint did not advance: {} -> {}",
         before,
         fsinfo(&after, NEXT_FREE)
-    );
-}
-
-/// The allocation hint must still advance on a dirty volume
-///
-/// The hint shares the FSInfo sector with the free-cluster count, and mounting
-/// dirty discards that count. This pins that writing the sector is driven by the
-/// hint alone and is not conditional on the free cluster count being known
-#[tokio::test]
-async fn the_allocation_hint_advances_on_a_dirty_volume() {
-    let pristine = corpus::formatted_fs::build().await;
-    let mut dirty = pristine.clone();
-    mark_dirty(&mut dirty);
-    let before = fsinfo(&dirty, NEXT_FREE);
-
-    let after = write_a_file(&dirty, "NEW.BIN", 4096).await;
-
-    let hint = fsinfo(&after, NEXT_FREE);
-    assert!(
-        hint > before,
-        "the hint was not written back after a dirty mount: {} -> {}",
-        before,
-        hint
-    );
-
-    // And it has to be *useful*: pointing at a cluster that is actually free,
-    // so the next allocation finds one immediately rather than searching.
-    assert_eq!(
-        after.fat_get(0, hint),
-        0,
-        "hint points at cluster {}, which is not free",
-        hint
     );
 }
 
@@ -129,16 +100,26 @@ async fn an_impossible_free_count_is_replaced_with_unknown() {
 }
 
 /// The hint must continue advancing correctly across repeated dirty mount cycles
+///
+/// Mounting dirty discards the free-cluster count, so this also covers the case that writing the sector is driven by
+/// the hint alone and is not conditional on the count being known.
 #[tokio::test]
 async fn the_hint_keeps_advancing_across_dirty_mount_cycles() {
     let pristine = corpus::formatted_fs::build().await;
     let mut img = pristine.clone();
-    let mut hints = Vec::new();
+    let mut prev_hint = fsinfo(&img, NEXT_FREE);
 
     for i in 0..4 {
         mark_dirty(&mut img);
         img = write_a_file(&img, &format!("LOG{}.BIN", i), 4096).await;
         let hint = fsinfo(&img, NEXT_FREE);
+        assert!(
+            hint > prev_hint,
+            "after cycle {} the hint stalled: {} -> {}",
+            i,
+            prev_hint,
+            hint
+        );
         // Checked against the volume as it stands now, not at the end: a later cycle will quite properly allocate the
         // cluster this one pointed at.
         assert_eq!(
@@ -148,14 +129,8 @@ async fn the_hint_keeps_advancing_across_dirty_mount_cycles() {
             i,
             hint
         );
-        hints.push(hint);
+        prev_hint = hint;
     }
-
-    assert!(
-        hints.windows(2).all(|w| w[1] > w[0]),
-        "the hint stalled across mount cycles: {:?}",
-        hints
-    );
 }
 
 /// Allocation must not depend on the hint being right.
@@ -215,7 +190,11 @@ async fn dotdot_names_cluster_zero_only_when_the_parent_is_the_root() {
     assert_eq!(img.entry_first_cluster(img.sfn(sub, ".")), sub);
 }
 
-/// Ensure we correctly resolve ../ pointing at 0
+/// The `..` entry of a child of the root holds cluster 0, which must resolve to the root without tripping cluster
+/// validation: cluster 0 is not a data cluster, so reaching `offset_from_cluster` with it would be a false alarm.
+///
+/// The on-disk encoding is pinned by `dotdot_names_cluster_zero_only_when_the_parent_is_the_root`; the corruption
+/// case is covered by `a_directory_with_an_invalid_first_cluster_is_corrupted`.
 #[tokio::test]
 async fn dotdot_walks_back_up_to_the_directory_it_names() {
     let img = corpus::formatted_fs::build().await;
@@ -238,4 +217,128 @@ async fn dotdot_walks_back_up_to_the_directory_it_names() {
     );
     // Round trips both ways, so `..` is not just landing somewhere plausible.
     assert_eq!(ls(&fs, "DATA/../DATA/SUB").await, ls(&fs, "DATA/SUB").await);
+}
+
+// ############################################################################################################
+//                                           VALID CLUSTER CHECKING
+// ############################################################################################################
+
+/// Cluster numbers outside the valid data-cluster range, for poking into a directory entry's first-cluster field.
+///
+/// Cluster 0 is deliberately absent: a directory entry that names it reads as empty/root, which is not an error. The
+/// `0x0FFF_FFFF` value is the flash-erase pattern a half-written entry leaves behind.
+fn invalid_entry_clusters(img: &Fat32Image) -> Vec<u32> {
+    vec![
+        1,                                  // below the reserved entries
+        img.geom().max_valid_cluster() + 1, // one past the top of the volume
+        0x0FFF_FFFF,                        // flash-erase pattern
+        0x0123_4567,                        // nonsense
+    ]
+}
+
+/// Like [`invalid_entry_clusters`] but for FAT chain slots, so special markers are excluded: `0x0FFF_FFFF` means
+/// end-of-chain and `0x0FFF_FFF7` means bad sector, so either would end the chain instead of producing an error.
+fn invalid_link_clusters(img: &Fat32Image) -> Vec<u32> {
+    vec![
+        1,                                  // reserved, rejected by the chain walk itself
+        img.geom().max_valid_cluster() + 1, // one past the top of the volume
+        0x0123_4567,                        // nonsense
+    ]
+}
+
+/// A file whose first cluster is out of range must report the volume as corrupted rather than seek to a bogus offset.
+#[tokio::test]
+async fn a_file_with_an_invalid_first_cluster_is_corrupted() {
+    let pristine = corpus::formatted_fs::build().await;
+
+    for bad in invalid_entry_clusters(&pristine) {
+        let mut img = pristine.clone();
+        let log = img.sfn(img.geom().root_cluster, "LOG.TXT");
+        img.set_entry_first_cluster(log, bad);
+
+        let (fs, _buffer) = mount(&img).await;
+        let mut file = fs.root_dir().open_file("LOG.TXT").await.expect("open_file");
+        let err = file.read_exact(&mut [0u8; 512]).await.expect_err("reading should fail");
+        assert!(
+            matches!(
+                err,
+                embedded_io_async::ReadExactError::Other(embedded_fatfs::Error::CorruptedFileSystem)
+            ),
+            "first cluster {:#x} gave {:?}",
+            bad,
+            err
+        );
+    }
+}
+
+/// A directory entry whose first cluster is out of range must be reported as corrupted when iterated.
+///
+/// Covers both an ordinary subdirectory and a `..` entry. Only cluster 0 is special-cased (a `..` holding it names the
+/// root, see `dotdot_names_cluster_zero_only_when_the_parent_is_the_root`); any other out-of-range value must reach
+/// cluster validation in either.
+#[tokio::test]
+async fn a_directory_with_an_invalid_first_cluster_is_corrupted() {
+    let pristine = corpus::formatted_fs::build().await;
+
+    // (entry whose first cluster we corrupt, path we then open and iterate)
+    for (entry, open_path) in [("DATA", "DATA"), ("DATA/..", "DATA/..")] {
+        for bad in invalid_entry_clusters(&pristine) {
+            let mut img = pristine.clone();
+            let data = img.dir_cluster("DATA");
+            let sfn_offset = match entry {
+                "DATA" => img.sfn(img.geom().root_cluster, "DATA"),
+                "DATA/.." => img.sfn(data, ".."),
+                _ => unreachable!("unknown target {:?}", entry),
+            };
+            img.set_entry_first_cluster(sfn_offset, bad);
+
+            let (fs, _buffer) = mount(&img).await;
+            let dir = fs.root_dir().open_dir(open_path).await.expect("open_dir");
+            let err = dir
+                .iter()
+                .next()
+                .await
+                .expect("iterator")
+                .expect_err("iterating should fail");
+            assert!(
+                matches!(err, embedded_fatfs::Error::CorruptedFileSystem),
+                "{:?} first cluster {:#x} gave {:?}",
+                entry,
+                bad,
+                err
+            );
+        }
+    }
+}
+
+/// Following a chain through an out-of-range link must report the volume as corrupted.
+///
+/// `BOOT.BIN` spans three clusters, so the first read lands in the (valid) first cluster and the second read has to
+/// follow the corrupt link to reach it.
+#[tokio::test]
+async fn an_out_of_range_link_in_a_chain_is_corrupted() {
+    let pristine = corpus::formatted_fs::build().await;
+
+    for bad in invalid_link_clusters(&pristine) {
+        let mut img = pristine.clone();
+        let boot = img.sfn(img.geom().root_cluster, "BOOT.BIN");
+        let first = img.entry_first_cluster(boot);
+        img.fat_set_all(first, bad);
+
+        let (fs, _buffer) = mount(&img).await;
+        let mut file = fs.root_dir().open_file("BOOT.BIN").await.expect("open_file");
+        let err = file
+            .read_exact(&mut [0u8; 1536])
+            .await
+            .expect_err("reading should fail");
+        assert!(
+            matches!(
+                err,
+                embedded_io_async::ReadExactError::Other(embedded_fatfs::Error::CorruptedFileSystem)
+            ),
+            "first cluster {:#x} gave {:?}",
+            bad,
+            err
+        );
+    }
 }
