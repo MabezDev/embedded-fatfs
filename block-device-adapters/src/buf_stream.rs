@@ -237,8 +237,17 @@ impl<T: BlockDevice<SIZE>, const SIZE: usize> Seek for BufStream<T, SIZE> {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         self.current_offset = match pos {
             SeekFrom::Start(x) => x,
-            SeekFrom::End(x) => (self.inner.size().await? as i64 - x) as u64,
-            SeekFrom::Current(x) => (self.current_offset as i64 + x) as u64,
+            SeekFrom::End(x) => {
+                let size = self.inner.size().await? as i64;
+                (size + x).max(0) as u64
+            }
+            SeekFrom::Current(x) => {
+                i64::try_from(self.current_offset)
+                    .ok()
+                    .and_then(|o| o.checked_add(x))
+                    .map(|o| o.max(0) as u64)
+                    .unwrap_or(0)
+            }
         };
         Ok(self.current_offset)
     }

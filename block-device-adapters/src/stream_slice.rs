@@ -109,8 +109,13 @@ impl<T: Read + Write + Seek> Write for StreamSlice<T> {
 impl<T: Read + Write + Seek> Seek for StreamSlice<T> {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, StreamSliceError<T::Error>> {
         let new_offset = match pos {
-            SeekFrom::Current(x) => self.current_offset as i64 + x,
-            SeekFrom::Start(x) => x as i64,
+            SeekFrom::Current(x) => i64::try_from(self.current_offset)
+                .ok()
+                .and_then(|o| o.checked_add(x))
+                .ok_or(StreamSliceError::InvalidSeek(i64::MAX))?,
+            SeekFrom::Start(x) => {
+                i64::try_from(x).map_err(|_| StreamSliceError::InvalidSeek(i64::MAX))?
+            }
             SeekFrom::End(x) => self.size as i64 + x,
         };
         if new_offset < 0 || new_offset as u64 > self.size {
