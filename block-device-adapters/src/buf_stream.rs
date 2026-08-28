@@ -120,6 +120,12 @@ impl<T: BlockDevice<SIZE>, const SIZE: usize> embedded_io_async::ErrorType for B
 
 impl<T: BlockDevice<SIZE>, const SIZE: usize> Read for BufStream<T, SIZE> {
     async fn read(&mut self, mut buf: &mut [u8]) -> Result<usize, Self::Error> {
+        // A zero-length read must be a no-op: forwarding it would otherwise
+        // satisfy the block-aligned fast path below and issue a 0-block device
+        // transfer (which some block devices, e.g. STM32 SDMMC DMA, reject).
+        if buf.is_empty() {
+            return Ok(0);
+        }
         let mut total = 0;
         let target = buf.len();
         loop {
@@ -169,6 +175,12 @@ impl<T: BlockDevice<SIZE>, const SIZE: usize> Read for BufStream<T, SIZE> {
 
 impl<T: BlockDevice<SIZE>, const SIZE: usize> Write for BufStream<T, SIZE> {
     async fn write(&mut self, mut buf: &[u8]) -> Result<usize, Self::Error> {
+        // A zero-length write must be a no-op: forwarding it would otherwise
+        // satisfy the block-aligned fast path below and issue a 0-block device
+        // transfer (which some block devices, e.g. STM32 SDMMC DMA, reject).
+        if buf.is_empty() {
+            return Ok(0);
+        }
         let mut total = 0;
         let target = buf.len();
         loop {
@@ -550,5 +562,51 @@ mod tests {
             buf,
             ("A".repeat(524) + &"B".repeat(512) + &"C".repeat(512) + &"A".repeat(500)).into_bytes()
         )
+    }
+
+    /// A block device that panics if ever handed a 0-block transfer, used to
+    /// prove the `BufStream` empty-buffer guard never forwards one.
+    struct AssertNonEmptyBlockDevice;
+
+    impl BlockDevice<512> for AssertNonEmptyBlockDevice {
+        type Error = core::convert::Infallible;
+        type Align = A4;
+
+        async fn read(
+            &mut self,
+            _block_address: u32,
+            data: &mut [Aligned<A4, [u8; 512]>],
+        ) -> Result<(), Self::Error> {
+            assert!(!data.is_empty(), "0-block read forwarded to device");
+            Ok(())
+        }
+
+        async fn write(
+            &mut self,
+            _block_address: u32,
+            data: &[Aligned<A4, [u8; 512]>],
+        ) -> Result<(), Self::Error> {
+            assert!(!data.is_empty(), "0-block write forwarded to device");
+            Ok(())
+        }
+
+        async fn size(&mut self) -> Result<u64, Self::Error> {
+            Ok(u64::MAX)
+        }
+    }
+
+    #[tokio::test]
+    async fn empty_transfers_are_noops() {
+        let mut block: BufStream<_, 512> = BufStream::new(AssertNonEmptyBlockDevice);
+        block.seek(SeekFrom::Start(0)).await.unwrap();
+
+        // Empty read/write must return Ok(0) without touching the device.
+        assert_eq!(block.write(&[]).await.unwrap(), 0);
+        assert_eq!(block.read(&mut []).await.unwrap(), 0);
+
+        // A real aligned transfer still reaches the device (sanity check that
+        // the assert above is actually armed).
+        let aligned: Aligned<A4, [u8; 512]> = Aligned([0xAB; 512]);
+        block.write_all(&aligned[..]).await.unwrap();
     }
 }

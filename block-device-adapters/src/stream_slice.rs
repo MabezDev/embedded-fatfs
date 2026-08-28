@@ -82,7 +82,14 @@ impl<T: Read + Write + Seek> StreamSlice<T> {
 
 impl<T: Read + Write + Seek> Read for StreamSlice<T> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, StreamSliceError<T::Error>> {
-        let max_read_size = cmp::min((self.size - self.current_offset) as usize, buf.len());
+        if buf.is_empty() {
+            // A zero-length write is a no-op; forwarding it would be misreported as `WriteZero` or cause other issues
+            return Ok(0);
+        }
+        // Narrow only after the min, so a remaining size exactly divisible by 4GiB isn't truncated to
+        // 0 by `as usize` on 32-bit targets
+        let remaining = self.size - self.current_offset;
+        let max_read_size = cmp::min(remaining, buf.len() as u64) as usize;
         let bytes_read = self.inner.read(&mut buf[..max_read_size]).await?;
         self.current_offset += bytes_read as u64;
         Ok(bytes_read)
@@ -91,7 +98,14 @@ impl<T: Read + Write + Seek> Read for StreamSlice<T> {
 
 impl<T: Read + Write + Seek> Write for StreamSlice<T> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, StreamSliceError<T::Error>> {
-        let max_write_size = cmp::min((self.size - self.current_offset) as usize, buf.len());
+        if buf.is_empty() {
+            // A zero-length write is a no-op; forwarding it would be misreported as `WriteZero` or cause other issues
+            return Ok(0);
+        }
+        // Narrow only after the min, so a remaining size exactly divisible by 4GiB isn't truncated to
+        // 0 by `as usize` on 32-bit targets
+        let remaining = self.size - self.current_offset;
+        let max_write_size = cmp::min(remaining, buf.len() as u64) as usize;
         let bytes_written = self.inner.write(&buf[..max_write_size]).await?;
         if bytes_written == 0 {
             return Err(StreamSliceError::WriteZero);
@@ -152,6 +166,85 @@ mod test {
         stream.seek(SeekFrom::Start(0)).await.unwrap();
         let data = read_to_string(&mut stream).await.unwrap();
         assert_eq!(data, "Test Rust");
+    }
+
+    #[tokio::test]
+    async fn empty_transfers_are_noops() {
+        let cur = std::io::Cursor::new("BeforeTest dataAfter".to_string().into_bytes());
+        let mut stream =
+            StreamSlice::new(embedded_io_adapters::tokio_1::FromTokio::new(cur), 6, 6 + 9)
+                .await
+                .unwrap();
+
+        // Empty write must be Ok(0), not `WriteZero`, and must not advance.
+        assert_eq!(stream.write(&[]).await.unwrap(), 0);
+        assert_eq!(stream.read(&mut []).await.unwrap(), 0);
+        assert_eq!(stream.seek(SeekFrom::Current(0)).await.unwrap(), 0);
+
+        // Data is still intact / readable afterwards.
+        let data = read_to_string(&mut stream).await.unwrap();
+        assert_eq!(data, "Test data");
+    }
+
+    /// A zero-storage `Read + Write + Seek` device with a virtual size, so a
+    /// multi-GiB `StreamSlice` can be tested without allocating anything.
+    struct Sink {
+        pos: u64,
+        len: u64,
+    }
+
+    impl embedded_io_async::ErrorType for Sink {
+        type Error = core::convert::Infallible;
+    }
+
+    impl Read for Sink {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            let n = cmp::min(self.len - self.pos, buf.len() as u64) as usize;
+            self.pos += n as u64;
+            Ok(n)
+        }
+    }
+
+    impl Write for Sink {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            let n = cmp::min(self.len - self.pos, buf.len() as u64) as usize;
+            self.pos += n as u64;
+            Ok(n)
+        }
+
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    impl Seek for Sink {
+        async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+            self.pos = match pos {
+                SeekFrom::Start(x) => x,
+                SeekFrom::Current(x) => (self.pos as i64 + x) as u64,
+                SeekFrom::End(x) => (self.len as i64 + x) as u64,
+            };
+            Ok(self.pos)
+        }
+    }
+
+    #[tokio::test]
+    async fn transfers_past_4gib_boundary_not_truncated() {
+        const G: u64 = 1024 * 1024 * 1024;
+        let mut slice = StreamSlice::new(Sink { pos: 0, len: 8 * G }, 0, 8 * G)
+            .await
+            .unwrap();
+
+        let data = [0xAAu8; 512];
+        assert_eq!(slice.write(&data).await.unwrap(), data.len());
+
+        slice.seek(SeekFrom::Start(4 * G)).await.unwrap(); // remaining == 2^32
+        let data = [0xAAu8; 512];
+        assert_eq!(slice.write(&data).await.unwrap(), data.len());
+
+        slice.seek(SeekFrom::Start(4 * G)).await.unwrap();
+        let mut rbuf = [0u8; 512];
+        assert_eq!(slice.read(&mut rbuf).await.unwrap(), rbuf.len());
     }
 
     async fn read_to_string<IO: embedded_io_async::Read>(io: &mut IO) -> Result<String, IO::Error> {
