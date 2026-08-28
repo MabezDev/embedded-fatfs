@@ -148,9 +148,15 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
     // todo!("extents needs to be implemented using AsyncIterator");
     // }
 
-    pub(crate) fn abs_pos(&self) -> Option<u64> {
-        // Returns current position relative to filesystem start
-        // Note: when between clusters it returns position after previous cluster
+    /// Current position relative to the start of the filesystem, or `None` if the stream is at position 0.
+    ///
+    /// Note: when between clusters it returns the position after the previous cluster.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::CorruptedFileSystem` if the current cluster number is outside the volume. This is kept distinct
+    /// from `Ok(None)`: callers rely on `None` meaning "position 0" and nothing else.
+    pub(crate) fn abs_pos(&self) -> Result<Option<u64>, Error<IO::Error>> {
         match self.context.current_cluster {
             Some(n) => {
                 let cluster_size = self.fs.cluster_size();
@@ -162,10 +168,10 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
                 } else {
                     offset_mod_cluster_size
                 };
-                let offset_in_fs = self.fs.offset_from_cluster(n) + u64::from(offset_in_cluster);
-                Some(offset_in_fs)
+                let offset_in_fs = self.fs.offset_from_cluster(n)? + u64::from(offset_in_cluster);
+                Ok(Some(offset_in_fs))
             }
-            None => None,
+            None => Ok(None),
         }
     }
 
@@ -217,10 +223,10 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
     }
 
     fn is_dir(&self) -> bool {
-        match self.context.entry {
-            Some(ref e) => e.inner().is_dir(),
-            None => false,
-        }
+        // Either we are annotated as a directory
+        self.context.entry.as_ref().is_some_and(| e|  e.inner().is_dir()) ||
+            // Or, we have no Entry and are the root dir
+            self.context.first_cluster.is_some_and(|c| self.fs.is_root_dir(c))
     }
 
     fn bytes_left_in_file(&self) -> Option<usize> {
@@ -334,7 +340,7 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Read for File<'_, IO, TP, OCC> {
             return Ok(0);
         }
         trace!("read {} bytes in cluster {}", read_size, current_cluster);
-        let offset_in_fs = self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
+        let offset_in_fs = self.fs.offset_from_cluster(current_cluster)? + u64::from(offset_in_cluster);
         let read_bytes = {
             let mut disk = self.fs.disk.borrow_mut();
             disk.seek(SeekFrom::Start(offset_in_fs)).await?;
@@ -410,7 +416,7 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
             }
         };
         trace!("write {} bytes in cluster {}", write_size, current_cluster);
-        let offset_in_fs = self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
+        let offset_in_fs = self.fs.offset_from_cluster(current_cluster)? + u64::from(offset_in_cluster);
         let written_bytes = {
             let mut disk = self.fs.disk.borrow_mut();
             disk.seek(SeekFrom::Start(offset_in_fs)).await?;

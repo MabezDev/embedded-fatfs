@@ -52,3 +52,5 @@ env_logger = "0.9"
 embedded-fatfs = { path = ".", features = [ "std", "alloc" ] }
 tokio = { version = "1", default-features = false, features = ["fs", "rt-multi-thread", "macros", "io-util"] }
 anyhow = "1"
+tempfile = "3"
+regex = "1"

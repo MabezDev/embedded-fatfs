@@ -1,0 +1,182 @@
+//! Builds a small FAT32 volume backed by memory, for use in testing.
+//!
+//! The volume is built deterministically with `embedded_fatfs`, from user-supplied memory that might be pre-filled with
+//! random or adversarial data patterns. [`build`] additonally pre-populates the FS with a few files to excercise
+//! various edge cases.
+
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use embedded_fatfs::{FormatVolumeOptions, FsOptions, LossyOemCpConverter, NullTimeProvider};
+use embedded_io_async::{ErrorType, Read, Seek, SeekFrom, Write};
+
+use super::image::Fat32Image;
+use super::util::FileSystem;
+
+// Sector size of every image in the corpus.
+pub const BYTES_PER_SECTOR: u16 = 512;
+// One sector per cluster keeps the images small while still giving multi-cluster files
+pub const BYTES_PER_CLUSTER: u32 = 512;
+// 40 MiB is the smallest FAT32 filesystem with one-sector clusters.
+pub const TOTAL_BYTES: u64 = 40 * 1024 * 1024;
+
+/// Contents of the files in the pristine volume: (path, length in bytes).
+///
+/// Sizes are chosen so the corpus has an exactly-one-cluster file, a exactly multi-cluster file, a file with a
+/// partly-used last cluster, and an empty file, and a subdirectory.
+pub const FILES: &[(&str, usize)] = &[
+    ("BOOT.BIN", 1536),                // 3 clusters, exactly full
+    ("LOG.TXT", 512),                  // 1 cluster, exactly full
+    ("EMPTY.TXT", 0),                  // no cluster at all
+    ("HUGE.BIN", 32*1024*1024),        // a file that takes up most of the 40MiB volume
+    ("DATA/READINGS.CSV", 1000),       // 2 clusters, last one partly used
+    ("DATA/sensor readings.txt", 200), // 1 cluster, has LFN entries
+];
+
+/// Directories in the pristine volume, in creation order.
+pub const DIRS: &[&str] = &["DATA", "DATA/SUB"];
+
+/// Fill each file with deterministic pseudorandom data, so a cluster mix-up shows up as an invalid data
+pub fn file_content(path: &str, len: usize) -> Vec<u8> {
+    let mut state = path.bytes().fold(0x1234_5678_u32, |s, b| {
+        s.rotate_left(5) ^ u32::from(b).wrapping_mul(0x9E37_79B1)
+    });
+    (0..len)
+        .map(|_| {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (state >> 24) as u8
+        })
+        .collect()
+}
+
+/// Format and mount a FAT32 volume backed by `storage`
+///
+/// `storage` is used as given rather than zeroed, so a caller can pre-fill it with a pattern. The returned buffer is
+/// shared with the mounted device and stays readable after `unmount`
+pub async fn format_and_mount(storage: Vec<u8>) -> (FileSystem, Rc<RefCell<Vec<u8>>>) {
+    let disk = MemDisk::from_bytes(storage);
+    let buffer = disk.buffer();
+
+    let mut fmt_disk = disk.clone();
+    embedded_fatfs::format_volume(
+        &mut fmt_disk,
+        FormatVolumeOptions::new()
+            .fat_type(embedded_fatfs::FatType::Fat32)
+            .bytes_per_sector(BYTES_PER_SECTOR)
+            .bytes_per_cluster(BYTES_PER_CLUSTER)
+            .fats(2)
+            .volume_id(0x1234_5678)
+            .volume_label(*b"FSCKCORPUS "),
+    )
+    .await
+    .expect("format volume");
+
+    let options = FsOptions::new()
+        .time_provider(NullTimeProvider::new())
+        .oem_cp_converter(LossyOemCpConverter::new());
+    let fs = embedded_fatfs::FileSystem::new(disk, options).await.expect("mount");
+    (fs, buffer)
+}
+
+/// Build the pristine image.
+pub async fn build() -> Fat32Image {
+    let (fs, buffer) = format_and_mount(vec![0; TOTAL_BYTES as usize]).await;
+
+    {
+        let root = fs.root_dir();
+        for dir in DIRS {
+            root.create_dir(dir).await.expect("create_dir");
+        }
+        for &(path, len) in FILES {
+            let mut file = root.create_file(path).await.expect("create_file");
+            file.truncate().await.expect("truncate");
+            if len > 0 {
+                file.write_all(&file_content(path, len)).await.expect("write");
+            }
+            file.flush().await.expect("flush file");
+        }
+        // Force the free-cluster count to be computed and written, so FSInfo in
+        // the pristine image is correct rather than merely plausible.
+        fs.stats().await.expect("stats");
+    }
+    fs.unmount().await.expect("unmount");
+
+    let data = buffer.borrow().clone();
+    Fat32Image::parse(data)
+}
+
+/// An in-memory block device. Unlike a `Cursor`, the buffer is shared, so it can still be read after
+/// `FileSystem::unmount` consumes its storage.
+#[derive(Clone)]
+pub struct MemDisk {
+    buffer: Rc<RefCell<Vec<u8>>>,
+    pos: u64,
+}
+
+impl MemDisk {
+    pub fn new(size: usize) -> Self {
+        Self::from_bytes(vec![0; size])
+    }
+
+    pub fn from_bytes(data: Vec<u8>) -> Self {
+        Self {
+            buffer: Rc::new(RefCell::new(data)),
+            pos: 0,
+        }
+    }
+
+    pub fn buffer(&self) -> Rc<RefCell<Vec<u8>>> {
+        Rc::clone(&self.buffer)
+    }
+}
+
+impl ErrorType for MemDisk {
+    type Error = embedded_io_async::ErrorKind;
+}
+
+impl Read for MemDisk {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        let data = self.buffer.borrow();
+        let pos = usize::try_from(self.pos).unwrap().min(data.len());
+        let n = buf.len().min(data.len() - pos);
+        buf[..n].copy_from_slice(&data[pos..pos + n]);
+        self.pos += n as u64;
+        Ok(n)
+    }
+}
+
+impl Write for MemDisk {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        let mut data = self.buffer.borrow_mut();
+        let pos = usize::try_from(self.pos).unwrap();
+        if pos >= data.len() {
+            return Err(embedded_io_async::ErrorKind::InvalidInput);
+        }
+        let n = buf.len().min(data.len() - pos);
+        data[pos..pos + n].copy_from_slice(&buf[..n]);
+        self.pos += n as u64;
+        Ok(n)
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl Seek for MemDisk {
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+        let len = self.buffer.borrow().len() as i64;
+        let new = match pos {
+            SeekFrom::Start(n) => n as i64,
+            SeekFrom::End(n) => len + n,
+            SeekFrom::Current(n) => self.pos as i64 + n,
+        };
+        // Seeking to the end is how `format_volume` measures the device, so `new == len` is legal; anything beyond it
+        // is off the card.
+        if new < 0 || new > len {
+            return Err(embedded_io_async::ErrorKind::InvalidInput);
+        }
+        self.pos = new as u64;
+        Ok(self.pos)
+    }
+}

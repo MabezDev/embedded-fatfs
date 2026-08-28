@@ -131,6 +131,14 @@ pub trait ReadWriteSeek: Read + Write + Seek {}
 
 impl<T: IoBase + Read + Write + Seek> ReadWriteSeek for T {}
 
+/// Highest cluster number that names real data on a volume of `total_clusters`.
+///
+/// Clusters 0 and 1 are reserved, and `total_cluster counts` data clusters only, so the data clusters are numbered
+/// `RESERVED_FAT_ENTRIES..=total_clusters + RESERVED_FAT_ENTRIES - 1`.
+pub(crate) const fn max_valid_cluster(total_clusters: u32) -> u32 {
+    total_clusters + RESERVED_FAT_ENTRIES - 1
+}
+
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Default, Debug)]
 struct FsInfoSector {
@@ -200,7 +208,7 @@ impl FsInfoSector {
     }
 
     fn validate_and_fix(&mut self, total_clusters: u32) {
-        let max_valid_cluster_number = total_clusters + RESERVED_FAT_ENTRIES;
+        let max_valid_cluster_number = max_valid_cluster(total_clusters);
         if let Some(n) = self.free_cluster_count {
             if n > total_clusters {
                 warn!(
@@ -453,7 +461,24 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
         self.bpb.bytes_from_sectors(sector)
     }
 
+    /// Whether `cluster` names a data cluster that exists on this volume.
+    ///
+    /// Clusters 0 and 1 are reserved and the highest usable cluster is `total_clusters + 1`, so anything outside that
+    /// range reached us from a corrupt FAT entry or directory entry.
+    pub(crate) fn is_valid_cluster(&self, cluster: u32) -> bool {
+        (RESERVED_FAT_ENTRIES..=max_valid_cluster(self.total_clusters)).contains(&cluster)
+    }
+
+    /// Whether `cluster` names the root directory of this volume.
+    ///
+    /// On FAT32 the root is an ordinary cluster chain and the BPB gives its first cluster. FAT12 and FAT16 keep the
+    /// root in a fixed region outside the data area, which has no cluster number of its own
+    pub(crate) fn is_root_dir(&self, cluster: u32) -> bool {
+        cluster == self.bpb.root_dir_first_cluster
+    }
+
     fn sector_from_cluster(&self, cluster: u32) -> u32 {
+        debug_assert!(self.is_valid_cluster(cluster), "cluster {} is out of range", cluster);
         self.first_data_sector + self.bpb.sectors_from_clusters(cluster - RESERVED_FAT_ENTRIES)
     }
 
@@ -461,8 +486,22 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
         self.bpb.cluster_size()
     }
 
-    pub(crate) fn offset_from_cluster(&self, cluster: u32) -> u64 {
-        self.offset_from_sector(self.sector_from_cluster(cluster))
+    /// Byte offset of the first byte of `cluster`.
+    ///
+    /// Checks if cluster is valid (see `is_valid_cluster()`), and errors if not.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::CorruptedFileSystem` for cluster numbers outside the valid range.
+    pub(crate) fn offset_from_cluster(&self, cluster: u32) -> Result<u64, Error<IO::Error>> {
+        if !self.is_valid_cluster(cluster) {
+            error!(
+                "cluster {} is outside the volume ({} data clusters); the filesystem is corrupted",
+                cluster, self.total_clusters
+            );
+            return Err(Error::CorruptedFileSystem);
+        }
+        Ok(self.offset_from_sector(self.sector_from_cluster(cluster)))
     }
 
     pub(crate) fn bytes_from_clusters(&self, clusters: u32) -> u64 {
@@ -510,8 +549,9 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
             alloc_cluster(&mut fat, self.fat_type, prev_cluster, hint, self.total_clusters).await?
         };
         if zero {
+            let offset = self.offset_from_cluster(cluster)?;
             let mut disk = self.disk.borrow_mut();
-            disk.seek(SeekFrom::Start(self.offset_from_cluster(cluster))).await?;
+            disk.seek(SeekFrom::Start(offset)).await?;
             write_zeros(&mut *disk, u64::from(self.cluster_size())).await?;
         }
         let mut fs_info = self.fs_info.borrow_mut();
@@ -615,9 +655,21 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
         } else {
             0x025
         };
+        // FAT32 keeps a second copy of the boot sector, with the flag at the same offset within it. Updating only the
+        // first leaves the two disagreeing about whether the volume is dirty. `backup_boot_sector` is 0 when there is
+        // no second copy, and only FAT32 has one.
+        let backup_offset = match self.bpb.backup_boot_sector() {
+            0 => None,
+            sector if self.fat_type() == FatType::Fat32 => Some(self.offset_from_sector(sector) + offset),
+            _ => None,
+        };
         let mut disk = self.disk.borrow_mut();
         disk.seek(io::SeekFrom::Start(offset)).await?;
         disk.write_u8(encoded).await?;
+        if let Some(backup_offset) = backup_offset {
+            disk.seek(io::SeekFrom::Start(backup_offset)).await?;
+            disk.write_u8(encoded).await?;
+        }
         disk.flush().await?;
         self.current_status_flags.set(flags);
         Ok(())
@@ -932,10 +984,14 @@ impl OemCpConverter for LossyOemCpConverter {
 }
 
 async fn write_zeros<IO: ReadWriteSeek>(disk: &mut IO, mut len: u64) -> Result<(), IO::Error> {
-    const ZEROS: [u8; 512] = [0_u8; 512];
+    // Zero buffer must live in RAM, as consts in flash aren't (necessarily) compatible with DMA, and may cause an
+    // underlying sdio peripheral to error if we pass a flash addresss directly.
+    #[repr(align(4))]
+    struct ZeroBuf([u8; 512]);
+    let zeros = ZeroBuf([0_u8; 512]);
     while len > 0 {
-        let write_size = cmp::min(len, ZEROS.len() as u64) as usize;
-        disk.write_all(&ZEROS[..write_size]).await?;
+        let write_size = cmp::min(len, zeros.0.len() as u64) as usize;
+        disk.write_all(&zeros.0[..write_size]).await?;
         len -= write_size as u64;
     }
     Ok(())

@@ -453,20 +453,36 @@ async fn test_rename_file_fat32() {
     call_with_fs(test_rename_file, FAT32_IMG, 6).await
 }
 
-async fn test_dirty_flag(tmp_path: String) {
+/// A simple wrapper around `mem::forget`, to make clear why we drop the FS.
+const fn drop_fs_leaving_it_dirty<T>(fs: T) {
+    core::mem::forget(fs)
+}
+
+/// The dirty flag is set by an unclean shutdown, and only an unmount clears it.
+///
+/// Dropping the filesystem without unmounting must set the flag, remounting must not clear it, and neither rebuilding
+/// the free-cluster count nor flushing may either: a dirty mount distrusts the count in FSInfo, so `stats` scans the
+/// whole FAT to rebuild it, and that scan says nothing about the metadata the flag is actually warning about.
+async fn test_dirty_flag_survives_stats(tmp_path: String) {
     // Open filesystem, make change, and forget it - should become dirty
     let fs = open_filesystem_rw(tmp_path.clone()).await;
     let status_flags = fs.read_status_flags().await.unwrap();
     assert_eq!(status_flags.dirty(), false);
     assert_eq!(status_flags.io_error(), false);
     fs.root_dir().create_file("abc.txt").await.unwrap();
-    core::mem::forget(fs);
+    drop_fs_leaving_it_dirty(fs);
+
     // Check if volume is dirty now
     let fs = open_filesystem_rw(tmp_path.clone()).await;
     let status_flags = fs.read_status_flags().await.unwrap();
     assert_eq!(status_flags.dirty(), true);
     assert_eq!(status_flags.io_error(), false);
+
+    fs.stats().await.unwrap();
+    fs.flush().await.unwrap();
+    assert_eq!(fs.read_status_flags().await.unwrap().dirty(), true);
     fs.unmount().await.unwrap();
+
     // Make sure remounting does not clear the dirty flag
     let fs = open_filesystem_rw(tmp_path).await;
     let status_flags = fs.read_status_flags().await.unwrap();
@@ -475,18 +491,51 @@ async fn test_dirty_flag(tmp_path: String) {
 }
 
 #[tokio::test]
-async fn test_dirty_flag_fat12() {
-    call_with_tmp_img(test_dirty_flag, FAT12_IMG, 7).await
+async fn test_dirty_flag_survives_stats_fat12() {
+    call_with_tmp_img(test_dirty_flag_survives_stats, FAT12_IMG, 7).await
 }
 
 #[tokio::test]
-async fn test_dirty_flag_fat16() {
-    call_with_tmp_img(test_dirty_flag, FAT16_IMG, 7).await
+async fn test_dirty_flag_survives_stats_fat16() {
+    call_with_tmp_img(test_dirty_flag_survives_stats, FAT16_IMG, 7).await
 }
 
 #[tokio::test]
-async fn test_dirty_flag_fat32() {
-    call_with_tmp_img(test_dirty_flag, FAT32_IMG, 7).await
+async fn test_dirty_flag_survives_stats_fat32() {
+    call_with_tmp_img(test_dirty_flag_survives_stats, FAT32_IMG, 7).await
+}
+
+/// The dirty flag has to be set in both copies of the boot sector.
+async fn test_dirty_flag_is_also_set_in_backup_boot_sector(tmp_path: String) {
+    /// Offset of the dirty flag within a FAT32 boot sector, and of `BPB_BkBootSec` within the BPB.
+    const DIRTY_FLAG: usize = 0x41;
+    const BACKUP_BOOT_SECTOR: usize = 50;
+
+    let before = fs::read(&tmp_path).await.unwrap();
+    let bytes_per_sector = u16::from_le_bytes([before[11], before[12]]) as usize;
+    let backup =
+        u16::from_le_bytes([before[BACKUP_BOOT_SECTOR], before[BACKUP_BOOT_SECTOR + 1]]) as usize * bytes_per_sector;
+    assert_ne!(backup, 0, "the fixture should have a backup boot sector");
+    assert_eq!(before[DIRTY_FLAG] & 1, 0, "the fixture should start clean");
+
+    // Leave the volume dirty by dropping a mutated filesystem without unmounting
+    let fs = open_filesystem_rw(tmp_path.clone()).await;
+    fs.root_dir().create_file("abc.txt").await.unwrap();
+    drop_fs_leaving_it_dirty(fs);
+
+    let after = fs::read(&tmp_path).await.unwrap();
+    assert_eq!(after[DIRTY_FLAG] & 1, 1, "the boot sector was not marked dirty");
+    assert_eq!(
+        after[backup + DIRTY_FLAG] & 1,
+        1,
+        "the backup boot sector still says the volume is clean"
+    );
+}
+
+/// FAT32 only, FAT12 and FAT16 have no backup boot sector to disagree with.
+#[tokio::test]
+async fn test_dirty_flag_is_also_set_in_backup_boot_sector_fat32() {
+    call_with_tmp_img(test_dirty_flag_is_also_set_in_backup_boot_sector, FAT32_IMG, 10).await
 }
 
 async fn test_multiple_files_in_directory(fs: FileSystem) {
