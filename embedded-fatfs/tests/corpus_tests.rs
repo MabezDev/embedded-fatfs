@@ -262,6 +262,41 @@ async fn rename_into_root_sets_dotdot_to_cluster_zero() {
     assert!(problems.is_empty(), "{problems:#?}");
 }
 
+/// A corrupted directory without a `..` entry can still move.
+#[tokio::test]
+async fn rename_moves_a_directory_without_dotdot() {
+    let mut img = corpus::formatted_fs::build().await;
+    let sub = img.dir_cluster("DATA/SUB");
+    let dotdot = img.sfn(sub, "..");
+    img.write(dotdot, &[0xE5]);
+
+    let (fs, _bytes) = mount(&img).await;
+    let root = fs.root_dir();
+    root.rename("DATA/SUB", &root, "SUB").await.unwrap();
+    assert!(ls(&fs, "DATA").await.iter().all(|n| n != "SUB"));
+    assert!(ls(&fs, "").await.iter().any(|n| n == "SUB"));
+}
+
+/// "." and ".." link to other directories, so they cannot be renamed.
+#[tokio::test]
+async fn rename_rejects_dot_entries() {
+    let img = corpus::formatted_fs::build().await;
+    let (fs, _bytes) = mount(&img).await;
+    let root = fs.root_dir();
+    let before = ls(&fs, "DATA/SUB").await;
+    for src in ["DATA/SUB/.", "DATA/SUB/.."] {
+        assert!(
+            matches!(
+                root.rename(src, &root, "MOVED").await,
+                Err(embedded_fatfs::Error::InvalidInput)
+            ),
+            "rename({src:?})"
+        );
+    }
+    assert_eq!(ls(&fs, "DATA/SUB").await, before);
+    assert!(ls(&fs, "").await.iter().all(|n| n != "MOVED"));
+}
+
 // ############################################################################################################
 //                                           VALID CLUSTER CHECKING
 // ############################################################################################################
