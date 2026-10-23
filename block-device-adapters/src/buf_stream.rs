@@ -7,6 +7,8 @@ use embedded_io_async::{ErrorKind, Read, Seek, SeekFrom, Write};
 #[non_exhaustive]
 pub enum BufStreamError<T> {
     Io(T),
+    /// The seek target is before the start of the device, or above `u64::MAX`.
+    InvalidSeek,
 }
 
 impl<T> From<T> for BufStreamError<T> {
@@ -19,6 +21,7 @@ impl<T: core::fmt::Debug> core::fmt::Display for BufStreamError<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             BufStreamError::Io(e) => write!(f, "IO error: {e:?}"),
+            BufStreamError::InvalidSeek => write!(f, "Invalid seek"),
         }
     }
 }
@@ -27,7 +30,10 @@ impl<T: core::fmt::Debug> core::error::Error for BufStreamError<T> {}
 
 impl<T: core::fmt::Debug> embedded_io_async::Error for BufStreamError<T> {
     fn kind(&self) -> ErrorKind {
-        ErrorKind::Other
+        match self {
+            BufStreamError::Io(_) => ErrorKind::Other,
+            BufStreamError::InvalidSeek => ErrorKind::InvalidInput,
+        }
     }
 }
 
@@ -247,20 +253,14 @@ impl<T: BlockDevice<SIZE>, const SIZE: usize> Write for BufStream<T, SIZE> {
 
 impl<T: BlockDevice<SIZE>, const SIZE: usize> Seek for BufStream<T, SIZE> {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
-        self.current_offset = match pos {
-            SeekFrom::Start(x) => x,
-            SeekFrom::End(x) => {
-                let size = self.inner.size().await? as i64;
-                (size + x).max(0) as u64
-            }
-            SeekFrom::Current(x) => {
-                i64::try_from(self.current_offset)
-                    .ok()
-                    .and_then(|o| o.checked_add(x))
-                    .map(|o| o.max(0) as u64)
-                    .unwrap_or(0)
-            }
+        let (base, offset) = match pos {
+            SeekFrom::Start(x) => (x, 0),
+            SeekFrom::End(x) => (self.inner.size().await?, x),
+            SeekFrom::Current(x) => (self.current_offset, x),
         };
+        // i128 holds every u64 + i64 sum, so this cannot overflow.
+        self.current_offset = u64::try_from(i128::from(base) + i128::from(offset))
+            .map_err(|_| BufStreamError::InvalidSeek)?;
         Ok(self.current_offset)
     }
 }
@@ -617,5 +617,47 @@ mod tests {
         // the assert above is actually armed).
         let aligned: Aligned<A4, [u8; 512]> = Aligned([0xAB; 512]);
         block.write_all(&aligned[..]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn seek_from_end_and_current() {
+        let cur = std::io::Cursor::new(vec![0; 2048]);
+        let mut block: BufStream<_, 512> = BufStream::new(TestBlockDevice(
+            embedded_io_adapters::tokio_1::FromTokio::new(cur),
+        ));
+        // TestBlockDevice reports a size of u64::MAX.
+        assert_eq!(block.seek(SeekFrom::End(-10)).await.unwrap(), u64::MAX - 10);
+        assert_eq!(block.seek(SeekFrom::End(0)).await.unwrap(), u64::MAX);
+        assert_eq!(
+            block.seek(SeekFrom::Current(-5)).await.unwrap(),
+            u64::MAX - 5
+        );
+
+        block.seek(SeekFrom::Start(100)).await.unwrap();
+        assert_eq!(block.seek(SeekFrom::Current(-50)).await.unwrap(), 50);
+        assert_eq!(block.seek(SeekFrom::Current(25)).await.unwrap(), 75);
+    }
+
+    #[tokio::test]
+    async fn invalid_seek_is_error() {
+        let mut block: BufStream<_, 512> = BufStream::new(AssertNonEmptyBlockDevice);
+        block.seek(SeekFrom::Start(100)).await.unwrap();
+
+        assert_eq!(
+            block.seek(SeekFrom::Current(-101)).await,
+            Err(BufStreamError::InvalidSeek)
+        );
+        assert_eq!(
+            block.seek(SeekFrom::End(1)).await,
+            Err(BufStreamError::InvalidSeek)
+        );
+        // A failed seek does not move the position.
+        assert_eq!(block.seek(SeekFrom::Current(0)).await.unwrap(), 100);
+
+        block.seek(SeekFrom::Start(u64::MAX)).await.unwrap();
+        assert_eq!(
+            block.seek(SeekFrom::Current(1)).await,
+            Err(BufStreamError::InvalidSeek)
+        );
     }
 }
