@@ -21,7 +21,7 @@ pub struct File<'a, IO: ReadWriteSeek, TP, OCC> {
 ///
 /// This is obtained by calling [`File::close`] and can be used to resume
 /// operations on a [`File`] with the [`DirEntry::to_file_with_context`](crate::dir_entry::DirEntry::to_file_with_context)
-/// method. This can be useful for large files, because to `Seek` to the
+/// or [`File::new_from_context`] methods. This can be useful for large files, because to `Seek` to the
 /// end of the file would mean scanning the whole cluster chain which
 /// has `O(n)` time complexity.
 #[derive(Clone)]
@@ -67,12 +67,16 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
 
     /// Create a file from a preexisting [`FileContext`] & [`FileSystem`].
     ///
-    /// Returns `Error::InvalidInput` if the file has been modified, deleted,
-    /// or the filesystem reformatted since the context was created.
+    /// This method compares the directory entry on the disk with the entry in the context. It returns
+    /// `Error::InvalidInput` if they are different, for example if the file was deleted, or its size,
+    /// first cluster or a timestamp changed. A change of the access date also causes this error.
     ///
-    /// **WARNING**: Two or more concurrent write accesses to the same file
-    /// will corrupt the filesystem. This is a caller invariant — the library
-    /// does not track open files.
+    /// **WARNING**: This check is not complete. It does not examine the cluster chain. If the file
+    /// was truncated and then extended to the same size, and the timestamps did not change, the
+    /// check passes. A write through the old context can then corrupt a different file. This is
+    /// always possible with [`NullTimeProvider`](crate::time::NullTimeProvider). While you keep a
+    /// context, do not change the file through a different handle. Two or more concurrent write
+    /// accesses to the same file also corrupt the filesystem. The library does not track open files.
     pub async fn new_from_context(
         context: FileContext,
         fs: &'a FileSystem<IO, TP, OCC>,
@@ -290,7 +294,7 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> File<'_, IO, TP, OCC> {
     /// Manually close the file
     ///
     /// A [`FileContext`] is returned, which can be used in conjunction with the
-    /// `to_file_with_context` API.
+    /// `to_file_with_context` or [`File::new_from_context`] API.
     pub async fn close(mut self) -> Result<FileContext, Error<IO::Error>> {
         self.flush().await?;
         Ok(FileContext {
