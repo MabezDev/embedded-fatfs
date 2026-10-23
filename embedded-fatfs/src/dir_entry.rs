@@ -273,23 +273,6 @@ impl DirFileEntryData {
         Ok(())
     }
 
-    pub(crate) fn to_bytes(&self) -> [u8; DIR_ENTRY_SIZE as usize] {
-        let mut buf = [0u8; DIR_ENTRY_SIZE as usize];
-        buf[0..11].copy_from_slice(&self.name);
-        buf[11] = self.attrs.bits();
-        buf[12] = self.reserved_0;
-        buf[13] = self.create_time_0;
-        buf[14..16].copy_from_slice(&self.create_time_1.to_le_bytes());
-        buf[16..18].copy_from_slice(&self.create_date.to_le_bytes());
-        buf[18..20].copy_from_slice(&self.access_date.to_le_bytes());
-        buf[20..22].copy_from_slice(&self.first_cluster_hi.to_le_bytes());
-        buf[22..24].copy_from_slice(&self.modify_time.to_le_bytes());
-        buf[24..26].copy_from_slice(&self.modify_date.to_le_bytes());
-        buf[26..28].copy_from_slice(&self.first_cluster_lo.to_le_bytes());
-        buf[28..32].copy_from_slice(&self.size.to_le_bytes());
-        buf
-    }
-
     pub(crate) fn is_deleted(&self) -> bool {
         self.name[0] == DIR_ENTRY_DELETED_FLAG
     }
@@ -672,10 +655,12 @@ impl<'a, IO: ReadWriteSeek, TP, OCC: OemCpConverter> DirEntry<'a, IO, TP, OCC> {
     /// # Panics
     ///
     /// Will panic if this is not a file.
-    /// Will panic if the [`FileContext`] does not match the on-disk state.
-    pub async fn to_file_with_context(&self, context: FileContext) -> File<'a, IO, TP, OCC> {
+    /// Will panic if the [`FileContext`] is not for the same file, or the file has been modified since.
+    #[must_use]
+    pub fn to_file_with_context(&self, context: FileContext) -> File<'a, IO, TP, OCC> {
         assert!(!self.is_dir(), "Not a file entry");
-        File::new_from_context(context, self.fs).await.expect("FileContext does not match on-disk state")
+        assert_eq!(Some(self.editor()), context.entry);
+        File::from_context(context, self.fs)
     }
 
     /// Returns `File` struct for this entry, resuming from an existing [`FileContext`]. Returns an error if
@@ -685,9 +670,15 @@ impl<'a, IO: ReadWriteSeek, TP, OCC: OemCpConverter> DirEntry<'a, IO, TP, OCC> {
     /// # Panics
     ///
     /// Will panic if this is not a file.
-    pub async fn try_to_file_with_context(&self, context: FileContext) -> Result<File<'a, IO, TP, OCC>, Error<IO::Error>> {
+    #[must_use]
+    pub fn try_to_file_with_context(&self, context: FileContext) -> Result<File<'a, IO, TP, OCC>, Error<IO::Error>> {
         assert!(!self.is_dir(), "Not a file entry");
-        File::new_from_context(context, self.fs).await
+        // This entry was read from the disk, so a match also means the context matches the on-disk state.
+        if context.entry != Some(self.editor()) {
+            return Err(Error::InvalidInput);
+        }
+
+        Ok(File::from_context(context, self.fs))
     }
 
     /// Returns `Dir` struct for this entry.

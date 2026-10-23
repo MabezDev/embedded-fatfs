@@ -1,6 +1,6 @@
 use core::cmp;
 
-use crate::dir_entry::DirEntryEditor;
+use crate::dir_entry::{DirEntryEditor, DIR_ENTRY_SIZE};
 use crate::error::Error;
 use crate::fs::{FileSystem, ReadWriteSeek};
 use crate::io::{IoBase, Read, Seek, SeekFrom, Write};
@@ -73,21 +73,31 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
     /// **WARNING**: Two or more concurrent write accesses to the same file
     /// will corrupt the filesystem. This is a caller invariant — the library
     /// does not track open files.
-    pub async fn new_from_context(context: FileContext, fs: &'a FileSystem<IO, TP, OCC>) -> Result<Self, Error<IO::Error>> {
+    pub async fn new_from_context(
+        context: FileContext,
+        fs: &'a FileSystem<IO, TP, OCC>,
+    ) -> Result<Self, Error<IO::Error>> {
         let editor = context.entry.as_ref().ok_or(Error::InvalidInput)?;
 
-        let mut on_disk = [0u8; 32];
+        let mut on_disk = [0u8; DIR_ENTRY_SIZE as usize];
         {
             let mut disk = fs.disk.borrow_mut();
             disk.seek(SeekFrom::Start(editor.pos())).await?;
             disk.read_exact(&mut on_disk).await?;
         }
 
-        if editor.inner().to_bytes() != on_disk {
+        let mut expected = [0u8; DIR_ENTRY_SIZE as usize];
+        // The buffer holds exactly one entry, so this write cannot fail.
+        editor.inner().serialize(&mut &mut expected[..]).await.ok();
+        if expected != on_disk {
             return Err(Error::InvalidInput);
         }
 
-        Ok(File { context, fs })
+        Ok(Self::from_context(context, fs))
+    }
+
+    pub(crate) fn from_context(context: FileContext, fs: &'a FileSystem<IO, TP, OCC>) -> Self {
+        File { context, fs }
     }
 
     /// Truncate file in current position.

@@ -80,12 +80,17 @@ async fn test_read_seek_context_resume(fs: FileSystem) {
     let context = short_file.close().await.unwrap();
 
     let short_file = root_dir.open_meta("short.txt").await.unwrap();
-    let mut short_file = short_file.to_file_with_context(context.clone()).await;
+    let mut short_file = short_file.to_file_with_context(context.clone());
     let current = short_file.seek(SeekFrom::Current(0)).await.unwrap();
     assert_eq!(current, pos);
 
     let content = read_to_end(&mut short_file).await.unwrap();
     assert_eq!(&content[..], TEST_TEXT[pos as usize..].as_bytes());
+
+    // test resuming on wrong file
+    let long_file = root_dir.open_meta("long.txt").await.unwrap();
+    let r = long_file.try_to_file_with_context(context);
+    assert!(r.is_err());
 }
 
 #[tokio::test]
