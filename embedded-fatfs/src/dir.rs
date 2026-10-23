@@ -615,6 +615,11 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
         } else {
             None
         };
+        // Save the new directory entry before the old one is freed. If the destination has no space, the error leaves
+        // the old entry as it was. An interruption between the two steps leaves two entries for the same clusters,
+        // which a disk check can repair, instead of no entry and lost clusters.
+        let sfn_entry = e.data.renamed(short_name);
+        dst_dir.write_entry(dst_name, sfn_entry).await?;
         // free long and short name entries
         let mut stream = self.stream.clone();
         stream.seek(SeekFrom::Start(e.offset_range.0)).await?;
@@ -626,9 +631,6 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
             stream.seek(SeekFrom::Current(-i64::from(DIR_ENTRY_SIZE))).await?;
             data.serialize(&mut stream).await?;
         }
-        // save new directory entry
-        let sfn_entry = e.data.renamed(short_name);
-        dst_dir.write_entry(dst_name, sfn_entry).await?;
 
         // Like in `create_dir`, a ".." entry that points to the root directory contains cluster 0.
         if let Some(dotdot_entry) = dotdot_entry {
@@ -1270,7 +1272,9 @@ impl ShortNameGenerator {
         let mut short_name = [SFN_PADDING; SFN_SIZE];
         // find extension after last dot
         // Note: short file name cannot start with the extension
-        let dot_index_opt = name[1..].rfind('.').map(|index| index + 1);
+        // The first character can be more than one byte, or the name can be empty.
+        let first_char_len = name.chars().next().map_or(0, char::len_utf8);
+        let dot_index_opt = name[first_char_len..].rfind('.').map(|index| index + first_char_len);
         // copy basename (part of filename before a dot)
         let basename_src = dot_index_opt.map_or(name, |dot_index| &name[..dot_index]);
         let (basename_len, basename_fits, basename_lossy) =
