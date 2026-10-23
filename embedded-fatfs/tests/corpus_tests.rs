@@ -219,6 +219,84 @@ async fn dotdot_walks_back_up_to_the_directory_it_names() {
     assert_eq!(ls(&fs, "DATA/../DATA/SUB").await, ls(&fs, "DATA/SUB").await);
 }
 
+/// A directory moved to a different parent must have its `..` updated.
+#[tokio::test]
+async fn rename_updates_dotdot_of_a_moved_directory() {
+    let img = corpus::formatted_fs::build().await;
+    let (fs, buffer) = mount(&img).await;
+    {
+        let root = fs.root_dir();
+        let other = root.create_dir("OTHER").await.unwrap();
+
+        // The new parent is the root, then an ordinary directory, then the root, then the ordinary directory again.
+        root.rename("DATA/SUB", &root, "SUB").await.unwrap();
+        root.rename("SUB", &other, "MOVED").await.unwrap();
+        other.rename("MOVED", &root, "TOP").await.unwrap();
+        root.rename("TOP", &other, "MOVED").await.unwrap();
+    }
+
+    assert_eq!(ls(&fs, "OTHER/MOVED/..").await, ls(&fs, "OTHER").await);
+    fs.unmount().await.unwrap();
+
+    let img = Fat32Image::parse(buffer.borrow().clone());
+    let moved = img.dir_cluster("OTHER/MOVED");
+    assert_eq!(img.entry_first_cluster(img.sfn(moved, "..")), img.dir_cluster("OTHER"));
+    let problems = corpus::verify::check(&img);
+    assert!(problems.is_empty(), "{problems:#?}");
+}
+
+/// A directory moved into the root must have cluster 0 in its `..`, not the root's cluster number.
+#[tokio::test]
+async fn rename_into_root_sets_dotdot_to_cluster_zero() {
+    let img = corpus::formatted_fs::build().await;
+    let (fs, buffer) = mount(&img).await;
+    let root = fs.root_dir();
+    root.rename("DATA/SUB", &root, "SUB").await.unwrap();
+    drop(root);
+    fs.unmount().await.unwrap();
+
+    let img = Fat32Image::parse(buffer.borrow().clone());
+    let sub = img.dir_cluster("SUB");
+    assert_eq!(img.entry_first_cluster(img.sfn(sub, "..")), 0);
+    let problems = corpus::verify::check(&img);
+    assert!(problems.is_empty(), "{problems:#?}");
+}
+
+/// A corrupted directory without a `..` entry can still move.
+#[tokio::test]
+async fn rename_moves_a_directory_without_dotdot() {
+    let mut img = corpus::formatted_fs::build().await;
+    let sub = img.dir_cluster("DATA/SUB");
+    let dotdot = img.sfn(sub, "..");
+    img.write(dotdot, &[0xE5]);
+
+    let (fs, _bytes) = mount(&img).await;
+    let root = fs.root_dir();
+    root.rename("DATA/SUB", &root, "SUB").await.unwrap();
+    assert!(ls(&fs, "DATA").await.iter().all(|n| n != "SUB"));
+    assert!(ls(&fs, "").await.iter().any(|n| n == "SUB"));
+}
+
+/// "." and ".." link to other directories, so they cannot be renamed.
+#[tokio::test]
+async fn rename_rejects_dot_entries() {
+    let img = corpus::formatted_fs::build().await;
+    let (fs, _bytes) = mount(&img).await;
+    let root = fs.root_dir();
+    let before = ls(&fs, "DATA/SUB").await;
+    for src in ["DATA/SUB/.", "DATA/SUB/.."] {
+        assert!(
+            matches!(
+                root.rename(src, &root, "MOVED").await,
+                Err(embedded_fatfs::Error::InvalidInput)
+            ),
+            "rename({src:?})"
+        );
+    }
+    assert_eq!(ls(&fs, "DATA/SUB").await, before);
+    assert!(ls(&fs, "").await.iter().all(|n| n != "MOVED"));
+}
+
 // ############################################################################################################
 //                                           VALID CLUSTER CHECKING
 // ############################################################################################################

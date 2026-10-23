@@ -256,6 +256,44 @@ async fn test_create_file_fat32() {
     call_with_fs(test_create_file, FAT32_IMG, 4).await
 }
 
+async fn test_dot_only_names(fs: FileSystem) {
+    let root_dir = fs.root_dir();
+    for name in ["...", ". .", " ", "   "] {
+        assert!(
+            matches!(
+                root_dir.create_file(name).await,
+                Err(embedded_fatfs::Error::InvalidFileName)
+            ),
+            "create_file({name:?})"
+        );
+        assert!(
+            matches!(
+                root_dir.create_dir(name).await,
+                Err(embedded_fatfs::Error::InvalidFileName)
+            ),
+            "create_dir({name:?})"
+        );
+    }
+    // Leading dots and inner spaces are valid.
+    root_dir.create_file(".hidden").await.unwrap().flush().await.unwrap();
+    root_dir.create_file("a b.txt").await.unwrap().flush().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_dot_only_names_fat12() {
+    call_with_fs(test_dot_only_names, FAT12_IMG, 9).await
+}
+
+#[tokio::test]
+async fn test_dot_only_names_fat16() {
+    call_with_fs(test_dot_only_names, FAT16_IMG, 9).await
+}
+
+#[tokio::test]
+async fn test_dot_only_names_fat32() {
+    call_with_fs(test_dot_only_names, FAT32_IMG, 9).await
+}
+
 async fn test_create_dir(fs: FileSystem) {
     let root_dir = fs.root_dir();
     let parent_dir = root_dir.open_dir("very/long/path").await.unwrap();

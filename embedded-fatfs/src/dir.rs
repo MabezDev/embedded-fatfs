@@ -336,6 +336,7 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
     /// * `Error::InvalidInput` will be returned if `path` points to an existing file that is a directory.
     /// * `Error::InvalidFileNameLength` will be returned if the file name is empty or if it is too long.
     /// * `Error::UnsupportedFileNameCharacter` will be returned if the file name contains an invalid character.
+    /// * `Error::InvalidFileName` will be returned if the file name contains only dots and spaces.
     /// * `Error::NotEnoughSpace` will be returned if there is not enough free space to create a new file.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub async fn create_file(&self, path: &str) -> Result<File<'a, IO, TP, OCC>, Error<IO::Error>> {
@@ -381,6 +382,7 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
     /// * `Error::InvalidInput` will be returned if `path` points to an existing file that is not a directory.
     /// * `Error::InvalidFileNameLength` will be returned if the file name is empty or if it is too long.
     /// * `Error::UnsupportedFileNameCharacter` will be returned if the file name contains an invalid character.
+    /// * `Error::InvalidFileName` will be returned if the file name contains only dots and spaces.
     /// * `Error::NotEnoughSpace` will be returned if there is not enough free space to create a new directory.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub async fn create_dir(&self, path: &str) -> Result<Self, Error<IO::Error>> {
@@ -528,6 +530,7 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
     /// * `Error::NotFound` will be returned if `src_path` points to a non-existing directory entry or if `dst_path`
     ///   stripped from the last component does not point to an existing directory.
     /// * `Error::AlreadyExists` will be returned if `dst_path` points to an existing directory entry.
+    /// * `Error::InvalidInput` will be returned if the last component of `src_path` is "." or "..".
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub async fn rename(
         &self,
@@ -578,6 +581,10 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
         dst_name: &str,
     ) -> Result<(), Error<IO::Error>> {
         trace!("Dir::rename_internal {} {}", src_name, dst_name);
+        // "." and ".." are links to other directories, they cannot move
+        if src_name == "." || src_name == ".." {
+            return Err(Error::InvalidInput);
+        }
         // find existing file
         let e = self.find_entry(src_name, None, None).await?;
         // check if destionation filename is unused
@@ -596,6 +603,18 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
             // destionation file does not exist, short name has been generated
             DirEntryOrShortName::ShortName(short_name) => short_name,
         };
+        // A moved directory must have its ".." entry point to the new parent. Find it before anything is changed, so
+        // an error leaves the disk as it was. A corrupted directory can have no ".." entry; then there is nothing to
+        // update.
+        let dotdot_entry = if e.is_dir() {
+            match e.to_dir().find_entry("..", Some(true), None).await {
+                Ok(dotdot_entry) => Some(dotdot_entry),
+                Err(Error::NotFound) => None,
+                Err(err) => return Err(err),
+            }
+        } else {
+            None
+        };
         // free long and short name entries
         let mut stream = self.stream.clone();
         stream.seek(SeekFrom::Start(e.offset_range.0)).await?;
@@ -610,6 +629,19 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
         // save new directory entry
         let sfn_entry = e.data.renamed(short_name);
         dst_dir.write_entry(dst_name, sfn_entry).await?;
+
+        // Like in `create_dir`, a ".." entry that points to the root directory contains cluster 0.
+        if let Some(dotdot_entry) = dotdot_entry {
+            let fat_type = self.fs.fat_type();
+            let parent_cluster = dst_dir.stream.first_cluster().filter(|&c| !self.fs.is_root_dir(c));
+            if dotdot_entry.data.first_cluster(fat_type) != parent_cluster {
+                let mut dotdot_data = dotdot_entry.data.clone();
+                dotdot_data.set_first_cluster(parent_cluster, fat_type);
+                let mut disk = self.fs.disk.borrow_mut();
+                disk.seek(SeekFrom::Start(dotdot_entry.entry_pos)).await?;
+                dotdot_data.serialize(&mut *disk).await?;
+            }
+        }
 
         // rename requires stream flush (no async drop :()
         stream.flush().await?;
@@ -887,6 +919,10 @@ fn validate_long_name<E: IoError>(name: &str) -> Result<(), Error<E>> {
     }
     if name.len() > MAX_LONG_NAME_LEN {
         return Err(Error::InvalidFileNameLength);
+    }
+    // reject names that are only dots and spaces, except the special "." and ".." entries
+    if name != "." && name != ".." && name.chars().all(|c| c == '.' || c == ' ') {
+        return Err(Error::InvalidFileName);
     }
     // check if there are only valid characters
     for c in name.chars() {
