@@ -484,6 +484,10 @@ impl DirEntryEditor {
         &self.data
     }
 
+    pub(crate) fn pos(&self) -> u64 {
+        self.pos
+    }
+
     pub(crate) fn dirty(&self) -> bool {
         self.dirty
     }
@@ -656,7 +660,7 @@ impl<'a, IO: ReadWriteSeek, TP, OCC: OemCpConverter> DirEntry<'a, IO, TP, OCC> {
     pub fn to_file_with_context(&self, context: FileContext) -> File<'a, IO, TP, OCC> {
         assert!(!self.is_dir(), "Not a file entry");
         assert_eq!(Some(self.editor()), context.entry);
-        File::new_from_context(context, self.fs)
+        File::from_context(context, self.fs)
     }
 
     /// Returns `File` struct for this entry, resuming from an existing [`FileContext`]. Returns an error if
@@ -669,11 +673,12 @@ impl<'a, IO: ReadWriteSeek, TP, OCC: OemCpConverter> DirEntry<'a, IO, TP, OCC> {
     #[must_use]
     pub fn try_to_file_with_context(&self, context: FileContext) -> Result<File<'a, IO, TP, OCC>, Error<IO::Error>> {
         assert!(!self.is_dir(), "Not a file entry");
+        // This entry was read from the disk, so a match also means the context matches the on-disk state.
         if context.entry != Some(self.editor()) {
             return Err(Error::InvalidInput);
         }
 
-        Ok(File::new_from_context(context, self.fs))
+        Ok(File::from_context(context, self.fs))
     }
 
     /// Returns `Dir` struct for this entry.

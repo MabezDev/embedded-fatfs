@@ -108,6 +108,36 @@ async fn test_read_seek_context_resume_fat32() {
     test_read_seek_context_resume(create_fs(FAT32_IMG).await).await
 }
 
+async fn test_new_from_context_direct(fs: FileSystem) {
+    let root_dir = fs.root_dir();
+    let mut file = root_dir.open_file("short.txt").await.unwrap();
+    let pos = file.seek(SeekFrom::End(-5)).await.unwrap();
+    let context = file.close().await.unwrap();
+
+    // Resume directly via File::new_from_context — no directory traversal
+    let mut file = embedded_fatfs::File::new_from_context(context, &fs).await.unwrap();
+    let current = file.seek(SeekFrom::Current(0)).await.unwrap();
+    assert_eq!(current, pos);
+
+    let content = read_to_end(&mut file).await.unwrap();
+    assert_eq!(&content[..], TEST_TEXT[pos as usize..].as_bytes());
+}
+
+#[tokio::test]
+async fn test_new_from_context_direct_fat12() {
+    test_new_from_context_direct(create_fs(FAT12_IMG).await).await
+}
+
+#[tokio::test]
+async fn test_new_from_context_direct_fat16() {
+    test_new_from_context_direct(create_fs(FAT16_IMG).await).await
+}
+
+#[tokio::test]
+async fn test_new_from_context_direct_fat32() {
+    test_new_from_context_direct(create_fs(FAT32_IMG).await).await
+}
+
 #[tokio::test]
 async fn test_read_seek_short_file_fat12() {
     test_read_seek_short_file(create_fs(FAT12_IMG).await).await

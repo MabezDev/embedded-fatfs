@@ -491,6 +491,43 @@ async fn test_rename_file_fat32() {
     call_with_fs(test_rename_file, FAT32_IMG, 6).await
 }
 
+async fn test_new_from_context_rejects_stale_context(fs: FileSystem) {
+    let root_dir = fs.root_dir();
+    let file = root_dir.open_file("short.txt").await.unwrap();
+    let stale = file.close().await.unwrap();
+
+    let mut file = root_dir.open_file("short.txt").await.unwrap();
+    file.seek(SeekFrom::End(0)).await.unwrap();
+    file.write_all(TEST_STR.as_bytes()).await.unwrap();
+    let fresh = file.close().await.unwrap();
+
+    // The size on the disk changed, so the old context does not match.
+    assert!(embedded_fatfs::File::new_from_context(stale, &fs).await.is_err());
+    let mut file = embedded_fatfs::File::new_from_context(fresh, &fs).await.unwrap();
+    file.flush().await.unwrap();
+
+    // A deleted file does not match either.
+    let file = root_dir.open_file("short.txt").await.unwrap();
+    let context = file.close().await.unwrap();
+    root_dir.remove("short.txt").await.unwrap();
+    assert!(embedded_fatfs::File::new_from_context(context, &fs).await.is_err());
+}
+
+#[tokio::test]
+async fn test_new_from_context_rejects_stale_context_fat12() {
+    call_with_fs(test_new_from_context_rejects_stale_context, FAT12_IMG, 11).await
+}
+
+#[tokio::test]
+async fn test_new_from_context_rejects_stale_context_fat16() {
+    call_with_fs(test_new_from_context_rejects_stale_context, FAT16_IMG, 11).await
+}
+
+#[tokio::test]
+async fn test_new_from_context_rejects_stale_context_fat32() {
+    call_with_fs(test_new_from_context_rejects_stale_context, FAT32_IMG, 11).await
+}
+
 /// A simple wrapper around `mem::forget`, to make clear why we drop the FS.
 const fn drop_fs_leaving_it_dirty<T>(fs: T) {
     core::mem::forget(fs)
