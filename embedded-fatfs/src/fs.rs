@@ -888,7 +888,12 @@ impl<B: BorrowMut<S>, S: Write + Seek> Write for DiskSlice<B, S> {
         let offset = self.begin + self.offset;
         let write_size = cmp::min(self.size - self.offset, buf.len() as u64) as usize;
         if write_size == 0 {
-            return Ok(0);
+            // `Ok(0)` for a non-empty buffer makes `write_all` panic. The slice is full, for example a full FAT12/16
+            // root directory.
+            if buf.is_empty() {
+                return Ok(0);
+            }
+            return Err(Error::NotEnoughSpace);
         }
         // Write data
         let storage = self.inner.borrow_mut();

@@ -399,10 +399,13 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
         let write_size = cmp::min(write_size, bytes_left_until_max_file_size);
         // Exit early if we are going to write no data
         if write_size == 0 {
-            if self.context.offset >= MAX_FILE_SIZE {
-                warn!("File size limit reached (4GiB)");
+            if buf.is_empty() {
+                return Ok(0);
             }
-            return Ok(0);
+            // `Ok(0)` for a non-empty buffer makes `write_all` panic. Like `std::io::Write::write_all`, return
+            // `WriteZero`.
+            warn!("File size limit reached (4GiB)");
+            return Err(Error::WriteZero);
         }
         // Mark the volume 'dirty'
         self.fs.set_dirty_flag(true).await?;
