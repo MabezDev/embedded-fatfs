@@ -242,11 +242,27 @@ impl NullTimeProvider {
 
 impl TimeProvider for NullTimeProvider {
     fn get_current_date(&self) -> Date {
-        Date::decode(0)
+        Date {
+            year: 1980,
+            month: 1,
+            day: 1,
+        }
     }
 
     fn get_current_date_time(&self) -> DateTime {
-        DateTime::decode(0, 0, 0)
+        DateTime::new(
+            Date {
+                year: 1980,
+                month: 1,
+                day: 1,
+            },
+            Time {
+                hour: 0,
+                min: 0,
+                sec: 0,
+                millis: 0,
+            },
+        )
     }
 }
 
@@ -260,7 +276,17 @@ pub type DefaultTimeProvider = NullTimeProvider;
 
 #[cfg(test)]
 mod tests {
-    use super::{Date, DateTime, Time};
+    use super::{Date, DateTime, NullTimeProvider, Time, TimeProvider};
+
+    #[test]
+    fn null_time_provider_is_valid() {
+        let tp = NullTimeProvider::new();
+        assert_eq!(tp.get_current_date(), Date::new(1980, 1, 1));
+        assert_eq!(
+            tp.get_current_date_time(),
+            DateTime::new(Date::new(1980, 1, 1), Time::new(0, 0, 0, 0))
+        );
+    }
 
     #[test]
     fn date_new_no_panic_1980() {

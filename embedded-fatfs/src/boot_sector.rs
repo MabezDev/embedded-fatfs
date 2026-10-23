@@ -250,8 +250,8 @@ impl BiosParameterBlock {
             );
             return Err(Error::CorruptedFileSystem);
         }
-        if (self.total_sectors_16 == 0) == (self.total_sectors_32 == 0) {
-            error!("Invalid BPB (total_sectors_16 or total_sectors_32 should be non-zero)");
+        if self.total_sectors_16 == 0 && self.total_sectors_32 == 0 {
+            error!("Invalid BPB (total_sectors_16 and total_sectors_32 are both zero)");
             return Err(Error::CorruptedFileSystem);
         }
         let total_sectors = self.total_sectors();
@@ -999,5 +999,20 @@ mod tests {
                 .expect("format_boot_sector");
             boot.validate::<Dummy>().expect("validate");
         }
+    }
+
+    #[test]
+    fn test_validate_total_sectors_both_fields() {
+        type E = Error<&'static str>;
+        let (mut boot, _) = format_boot_sector::<E>(&FormatVolumeOptions::new(), 8192, 512).unwrap();
+        assert_ne!(boot.bpb.total_sectors_16, 0);
+
+        // Some tools set both fields. Accept this.
+        boot.bpb.total_sectors_32 = u32::from(boot.bpb.total_sectors_16);
+        boot.validate::<E>().unwrap();
+
+        boot.bpb.total_sectors_16 = 0;
+        boot.bpb.total_sectors_32 = 0;
+        assert!(boot.validate::<E>().is_err());
     }
 }
