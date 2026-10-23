@@ -61,3 +61,7 @@ jobs:
       - name: Test embedded-partitions
         run: cargo test -p embedded-partitions --verbose
         if: ${{ matrix.run_tests }}
+
+      - name: Test block-device-adapters
+        run: cargo test -p block-device-adapters --verbose
+        if: ${{ matrix.run_tests }}

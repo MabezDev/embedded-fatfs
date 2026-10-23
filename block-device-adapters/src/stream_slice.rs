@@ -122,13 +122,16 @@ impl<T: Read + Write + Seek> Write for StreamSlice<T> {
 
 impl<T: Read + Write + Seek> Seek for StreamSlice<T> {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, StreamSliceError<T::Error>> {
-        let new_offset = match pos {
-            SeekFrom::Current(x) => self.current_offset as i64 + x,
-            SeekFrom::Start(x) => x as i64,
-            SeekFrom::End(x) => self.size as i64 + x,
+        let (base, offset) = match pos {
+            SeekFrom::Current(x) => (self.current_offset, x),
+            SeekFrom::Start(x) => (x, 0),
+            SeekFrom::End(x) => (self.size, x),
         };
-        if new_offset < 0 || new_offset as u64 > self.size {
-            Err(StreamSliceError::InvalidSeek(new_offset))
+        // i128 holds every u64 + i64 sum, so this cannot overflow.
+        let new_offset = i128::from(base) + i128::from(offset);
+        if new_offset < 0 || new_offset > i128::from(self.size) {
+            let reported = new_offset.clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64;
+            Err(StreamSliceError::InvalidSeek(reported))
         } else {
             self.inner
                 .seek(SeekFrom::Start(self.start_offset + new_offset as u64))
@@ -184,6 +187,43 @@ mod test {
         // Data is still intact / readable afterwards.
         let data = read_to_string(&mut stream).await.unwrap();
         assert_eq!(data, "Test data");
+    }
+
+    #[tokio::test]
+    async fn invalid_seek_is_error() {
+        let mut slice = StreamSlice::new(
+            Sink {
+                pos: 0,
+                len: u64::MAX,
+            },
+            0,
+            u64::MAX,
+        )
+        .await
+        .unwrap();
+
+        // Offsets above i64::MAX are valid in a large slice.
+        assert_eq!(
+            slice.seek(SeekFrom::Start(u64::MAX)).await.unwrap(),
+            u64::MAX
+        );
+        assert_eq!(slice.seek(SeekFrom::End(-1)).await.unwrap(), u64::MAX - 1);
+        assert_eq!(
+            slice.seek(SeekFrom::Current(-1)).await.unwrap(),
+            u64::MAX - 2
+        );
+
+        assert!(matches!(
+            slice.seek(SeekFrom::End(1)).await,
+            Err(StreamSliceError::InvalidSeek(i64::MAX))
+        ));
+        slice.seek(SeekFrom::Start(0)).await.unwrap();
+        assert!(matches!(
+            slice.seek(SeekFrom::Current(-1)).await,
+            Err(StreamSliceError::InvalidSeek(-1))
+        ));
+        // A failed seek does not move the position.
+        assert_eq!(slice.seek(SeekFrom::Current(0)).await.unwrap(), 0);
     }
 
     /// A zero-storage `Read + Write + Seek` device with a virtual size, so a
