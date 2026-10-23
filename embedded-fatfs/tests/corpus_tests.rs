@@ -219,6 +219,49 @@ async fn dotdot_walks_back_up_to_the_directory_it_names() {
     assert_eq!(ls(&fs, "DATA/../DATA/SUB").await, ls(&fs, "DATA/SUB").await);
 }
 
+/// A directory moved to a different parent must have its `..` updated.
+#[tokio::test]
+async fn rename_updates_dotdot_of_a_moved_directory() {
+    let img = corpus::formatted_fs::build().await;
+    let (fs, buffer) = mount(&img).await;
+    {
+        let root = fs.root_dir();
+        let other = root.create_dir("OTHER").await.unwrap();
+
+        // The new parent is the root, then an ordinary directory, then the root, then the ordinary directory again.
+        root.rename("DATA/SUB", &root, "SUB").await.unwrap();
+        root.rename("SUB", &other, "MOVED").await.unwrap();
+        other.rename("MOVED", &root, "TOP").await.unwrap();
+        root.rename("TOP", &other, "MOVED").await.unwrap();
+    }
+
+    assert_eq!(ls(&fs, "OTHER/MOVED/..").await, ls(&fs, "OTHER").await);
+    fs.unmount().await.unwrap();
+
+    let img = Fat32Image::parse(buffer.borrow().clone());
+    let moved = img.dir_cluster("OTHER/MOVED");
+    assert_eq!(img.entry_first_cluster(img.sfn(moved, "..")), img.dir_cluster("OTHER"));
+    let problems = corpus::verify::check(&img);
+    assert!(problems.is_empty(), "{problems:#?}");
+}
+
+/// A directory moved into the root must have cluster 0 in its `..`, not the root's cluster number.
+#[tokio::test]
+async fn rename_into_root_sets_dotdot_to_cluster_zero() {
+    let img = corpus::formatted_fs::build().await;
+    let (fs, buffer) = mount(&img).await;
+    let root = fs.root_dir();
+    root.rename("DATA/SUB", &root, "SUB").await.unwrap();
+    drop(root);
+    fs.unmount().await.unwrap();
+
+    let img = Fat32Image::parse(buffer.borrow().clone());
+    let sub = img.dir_cluster("SUB");
+    assert_eq!(img.entry_first_cluster(img.sfn(sub, "..")), 0);
+    let problems = corpus::verify::check(&img);
+    assert!(problems.is_empty(), "{problems:#?}");
+}
+
 // ############################################################################################################
 //                                           VALID CLUSTER CHECKING
 // ############################################################################################################

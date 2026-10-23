@@ -30,6 +30,8 @@ pub enum Error<T> {
     InvalidFileNameLength,
     /// The provided file name contains an invalid character.
     UnsupportedFileNameCharacter,
+    /// The provided file name is not valid, for example it contains only dots and spaces.
+    InvalidFileName,
 }
 
 impl<T: Debug + core::fmt::Display> IoError for Error<T> {
@@ -72,6 +74,7 @@ impl<T: core::fmt::Display> core::fmt::Display for Error<T> {
             Error::InvalidInput => write!(f, "Invalid input"),
             Error::InvalidFileNameLength => write!(f, "Invalid file name length"),
             Error::UnsupportedFileNameCharacter => write!(f, "Unsupported file name character"),
+            Error::InvalidFileName => write!(f, "Invalid file name"),
             Error::DirectoryIsNotEmpty => write!(f, "Directory is not empty"),
             Error::NotFound => write!(f, "No such file or directory"),
             Error::AlreadyExists => write!(f, "File or directory already exists"),

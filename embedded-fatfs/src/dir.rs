@@ -336,6 +336,7 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
     /// * `Error::InvalidInput` will be returned if `path` points to an existing file that is a directory.
     /// * `Error::InvalidFileNameLength` will be returned if the file name is empty or if it is too long.
     /// * `Error::UnsupportedFileNameCharacter` will be returned if the file name contains an invalid character.
+    /// * `Error::InvalidFileName` will be returned if the file name contains only dots and spaces.
     /// * `Error::NotEnoughSpace` will be returned if there is not enough free space to create a new file.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub async fn create_file(&self, path: &str) -> Result<File<'a, IO, TP, OCC>, Error<IO::Error>> {
@@ -381,6 +382,7 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
     /// * `Error::InvalidInput` will be returned if `path` points to an existing file that is not a directory.
     /// * `Error::InvalidFileNameLength` will be returned if the file name is empty or if it is too long.
     /// * `Error::UnsupportedFileNameCharacter` will be returned if the file name contains an invalid character.
+    /// * `Error::InvalidFileName` will be returned if the file name contains only dots and spaces.
     /// * `Error::NotEnoughSpace` will be returned if there is not enough free space to create a new directory.
     /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
     pub async fn create_dir(&self, path: &str) -> Result<Self, Error<IO::Error>> {
@@ -609,18 +611,21 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
         }
         // save new directory entry
         let sfn_entry = e.data.renamed(short_name);
-        dst_dir.write_entry(dst_name, sfn_entry).await?;
+        let new_entry = dst_dir.write_entry(dst_name, sfn_entry).await?;
 
-        // If the moved entry is a directory, update its ".." entry to point to the new parent
-        if e.is_dir() {
-            let new_entry = dst_dir.find_entry(dst_name, Some(true), None).await?;
-            let moved_dir = new_entry.to_dir();
-            let dotdot_entry = moved_dir.find_entry("..", None, None).await?;
-            let mut dotdot_data = dotdot_entry.data.clone();
-            dotdot_data.set_first_cluster(dst_dir.stream.first_cluster(), self.fs.fat_type());
-            let mut disk = self.fs.disk.borrow_mut();
-            disk.seek(SeekFrom::Start(dotdot_entry.entry_pos)).await?;
-            dotdot_data.serialize(&mut *disk).await?;
+        // A moved directory must have its ".." entry point to the new parent.
+        // Like in `create_dir`, a ".." entry that points to the root directory contains cluster 0.
+        if new_entry.is_dir() {
+            let fat_type = self.fs.fat_type();
+            let parent_cluster = dst_dir.stream.first_cluster().filter(|&c| !self.fs.is_root_dir(c));
+            let dotdot_entry = new_entry.to_dir().find_entry("..", Some(true), None).await?;
+            if dotdot_entry.data.first_cluster(fat_type) != parent_cluster {
+                let mut dotdot_data = dotdot_entry.data.clone();
+                dotdot_data.set_first_cluster(parent_cluster, fat_type);
+                let mut disk = self.fs.disk.borrow_mut();
+                disk.seek(SeekFrom::Start(dotdot_entry.entry_pos)).await?;
+                dotdot_data.serialize(&mut *disk).await?;
+            }
         }
 
         // rename requires stream flush (no async drop :()
@@ -806,6 +811,7 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC> DirIter<'a, IO, TP, OCC> {
         let mut begin_offset = offset;
         loop {
             let raw_entry = DirEntryData::deserialize(&mut self.stream).await?;
+            // access time has changed
             self.stream.flush().await?;
             offset += u64::from(DIR_ENTRY_SIZE);
             // Check if this is end of dir
@@ -899,13 +905,9 @@ fn validate_long_name<E: IoError>(name: &str) -> Result<(), Error<E>> {
     if name.len() > MAX_LONG_NAME_LEN {
         return Err(Error::InvalidFileNameLength);
     }
-    // reject names that are entirely dots and/or spaces (effectively empty after trimming),
-    // but allow the special "." and ".." directory entries
-    if name != "." && name != ".." {
-        let trimmed = name.trim_end_matches(|c| c == '.' || c == ' ');
-        if trimmed.is_empty() {
-            return Err(Error::InvalidFileNameLength);
-        }
+    // reject names that are only dots and spaces, except the special "." and ".." entries
+    if name != "." && name != ".." && name.chars().all(|c| c == '.' || c == ' ') {
+        return Err(Error::InvalidFileName);
     }
     // check if there are only valid characters
     for c in name.chars() {
