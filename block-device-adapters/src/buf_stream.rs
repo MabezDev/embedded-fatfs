@@ -118,6 +118,13 @@ impl<T: BlockDevice<SIZE>, const SIZE: usize> BufStream<T, SIZE> {
         }
         Ok(())
     }
+
+    /// Returns true if the cached block is in the `len` bytes that start at the current block.
+    fn cache_in_range(&self, len: usize) -> bool {
+        let start = u64::from(self.pointer_block_start());
+        let end = start + (len / SIZE) as u64;
+        (start..end).contains(&u64::from(self.current_block))
+    }
 }
 
 impl<T: BlockDevice<SIZE>, const SIZE: usize> embedded_io_async::ErrorType for BufStream<T, SIZE> {
@@ -140,6 +147,10 @@ impl<T: BlockDevice<SIZE>, const SIZE: usize> Read for BufStream<T, SIZE> {
                 && self.current_offset % SIZE as u64 == 0
             {
                 // If the provided buffer has a suitable length and alignment _and_ the read head is on a block boundary, use it directly
+                // The device must have the data of a modified cached block before we read it.
+                if self.cache_in_range(buf.len()) {
+                    self.flush().await?;
+                }
                 let block = self.pointer_block_start();
                 self.inner.read(block, slice_to_blocks_mut(buf)).await?;
 
@@ -195,6 +206,11 @@ impl<T: BlockDevice<SIZE>, const SIZE: usize> Write for BufStream<T, SIZE> {
                 && self.current_offset % SIZE as u64 == 0
             {
                 // If the provided buffer has a suitable length and alignment _and_ the write head is on a block boundary, use it directly
+                // This write replaces a cached block in its range, so discard the cache.
+                if self.cache_in_range(buf.len()) {
+                    self.current_block = u32::MAX;
+                    self.dirty = false;
+                }
                 let block = self.pointer_block_start();
                 self.inner.write(block, slice_to_blocks(buf)).await?;
 
@@ -659,5 +675,71 @@ mod tests {
             block.seek(SeekFrom::Current(1)).await,
             Err(BufStreamError::InvalidSeek)
         );
+    }
+
+    fn zeroed_block_stream() -> BufStream<
+        TestBlockDevice<embedded_io_adapters::tokio_1::FromTokio<std::io::Cursor<Vec<u8>>>>,
+        512,
+    > {
+        let cur = std::io::Cursor::new(vec![0; 2048]);
+        BufStream::new(TestBlockDevice(
+            embedded_io_adapters::tokio_1::FromTokio::new(cur),
+        ))
+    }
+
+    #[tokio::test]
+    async fn aligned_read_sees_dirty_cache() {
+        let mut block = zeroed_block_stream();
+        block.write_all(b"hello").await.unwrap();
+
+        let mut aligned: Aligned<A4, [u8; 1024]> = Aligned([0; 1024]);
+        block.seek(SeekFrom::Start(0)).await.unwrap();
+        block.read_exact(&mut aligned[..]).await.unwrap();
+        assert_eq!(&aligned[..5], b"hello");
+    }
+
+    #[tokio::test]
+    async fn aligned_write_is_not_overwritten_by_dirty_cache() {
+        let mut block = zeroed_block_stream();
+        block.write_all(b"old").await.unwrap();
+
+        let aligned: Aligned<A4, [u8; 512]> = Aligned([0xAB; 512]);
+        block.seek(SeekFrom::Start(0)).await.unwrap();
+        block.write_all(&aligned[..]).await.unwrap();
+        block.flush().await.unwrap();
+
+        let buf = block.into_inner().0.into_inner().into_inner();
+        assert_eq!(&buf[..512], &aligned[..]);
+    }
+
+    #[tokio::test]
+    async fn read_after_aligned_write_is_not_stale() {
+        let mut block = zeroed_block_stream();
+        let mut tmp = [0u8; 4];
+        block.read_exact(&mut tmp).await.unwrap();
+
+        let aligned: Aligned<A4, [u8; 512]> = Aligned([0xAB; 512]);
+        block.seek(SeekFrom::Start(0)).await.unwrap();
+        block.write_all(&aligned[..]).await.unwrap();
+
+        block.seek(SeekFrom::Start(0)).await.unwrap();
+        block.read_exact(&mut tmp).await.unwrap();
+        assert_eq!(tmp, [0xAB; 4]);
+    }
+
+    #[tokio::test]
+    async fn aligned_transfer_outside_cache_keeps_cache() {
+        let mut block = zeroed_block_stream();
+        block.write_all(b"cached").await.unwrap();
+
+        // Blocks 1..3 do not contain the cached block 0.
+        let aligned: Aligned<A4, [u8; 1024]> = Aligned([0xAB; 1024]);
+        block.seek(SeekFrom::Start(512)).await.unwrap();
+        block.write_all(&aligned[..]).await.unwrap();
+        block.flush().await.unwrap();
+
+        let buf = block.into_inner().0.into_inner().into_inner();
+        assert_eq!(&buf[..6], b"cached");
+        assert_eq!(&buf[512..1536], &aligned[..]);
     }
 }

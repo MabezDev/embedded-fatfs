@@ -294,6 +294,84 @@ async fn test_dot_only_names_fat32() {
     call_with_fs(test_dot_only_names, FAT32_IMG, 9).await
 }
 
+async fn test_non_ascii_and_empty_names(fs: FileSystem) {
+    let root_dir = fs.root_dir();
+    // The first character takes more than one byte.
+    root_dir.create_file("été.txt").await.unwrap().flush().await.unwrap();
+    root_dir.create_dir("ü").await.unwrap();
+    let names = root_dir
+        .iter()
+        .collect()
+        .await
+        .iter()
+        .map(|r| r.as_ref().unwrap().file_name())
+        .collect::<Vec<_>>();
+    assert!(names.iter().any(|n| n == "été.txt"), "{names:?}");
+    assert!(names.iter().any(|n| n == "ü"), "{names:?}");
+
+    assert!(matches!(
+        root_dir.create_file("").await,
+        Err(embedded_fatfs::Error::InvalidFileNameLength)
+    ));
+    assert!(matches!(
+        root_dir.create_dir("").await,
+        Err(embedded_fatfs::Error::InvalidFileNameLength)
+    ));
+}
+
+#[tokio::test]
+async fn test_non_ascii_and_empty_names_fat12() {
+    call_with_fs(test_non_ascii_and_empty_names, FAT12_IMG, 12).await
+}
+
+#[tokio::test]
+async fn test_non_ascii_and_empty_names_fat16() {
+    call_with_fs(test_non_ascii_and_empty_names, FAT16_IMG, 12).await
+}
+
+#[tokio::test]
+async fn test_non_ascii_and_empty_names_fat32() {
+    call_with_fs(test_non_ascii_and_empty_names, FAT32_IMG, 12).await
+}
+
+/// A full FAT12/16 root directory returns an error, and does not panic.
+///
+/// The image is in memory, because a file-backed disk makes the many directory scans slow.
+async fn test_full_root_dir(filename: &str) {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let bytes = fs::read(format!("{}/{}", IMG_DIR, filename)).await.unwrap();
+    let disk = embedded_io_adapters::tokio_1::FromTokio::new(std::io::Cursor::new(bytes));
+    let fs = embedded_fatfs::FileSystem::new(disk, FsOptions::new()).await.unwrap();
+    let root_dir = fs.root_dir();
+    let mut created = 0;
+    let err = loop {
+        match root_dir.create_file(&format!("F{created:05}.TXT")).await {
+            Ok(_) => {}
+            Err(err) => break err,
+        }
+        created += 1;
+        assert!(created < 10_000, "root directory did not become full");
+    };
+    assert!(matches!(err, embedded_fatfs::Error::NotEnoughSpace), "{err:?}");
+    assert!(created > 0);
+
+    // The directory is still usable.
+    let count = root_dir.iter().collect().await.iter().filter(|r| r.is_ok()).count();
+    assert!(count >= created);
+    root_dir.remove("F00000.TXT").await.unwrap();
+    root_dir.create_file("AGAIN.TXT").await.unwrap().flush().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_full_root_dir_fat12() {
+    test_full_root_dir(FAT12_IMG).await
+}
+
+#[tokio::test]
+async fn test_full_root_dir_fat16() {
+    test_full_root_dir(FAT16_IMG).await
+}
+
 async fn test_create_dir(fs: FileSystem) {
     let root_dir = fs.root_dir();
     let parent_dir = root_dir.open_dir("very/long/path").await.unwrap();

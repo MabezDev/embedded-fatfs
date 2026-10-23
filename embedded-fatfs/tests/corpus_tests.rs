@@ -10,7 +10,7 @@ mod corpus;
 
 use corpus::{fsinfo, ls, mark_dirty, mount, write_a_file, Fat32Image};
 
-use embedded_io_async::Read;
+use embedded_io_async::{Read, Write};
 
 /// Offsets of the two fields of interest within the FSInfo sector.
 const FREE_COUNT: u64 = 488;
@@ -275,6 +275,48 @@ async fn rename_moves_a_directory_without_dotdot() {
     root.rename("DATA/SUB", &root, "SUB").await.unwrap();
     assert!(ls(&fs, "DATA").await.iter().all(|n| n != "SUB"));
     assert!(ls(&fs, "").await.iter().any(|n| n == "SUB"));
+}
+
+/// A rename into a full directory on a full volume fails, and the file stays where it was.
+#[tokio::test]
+async fn rename_without_space_keeps_the_file() {
+    let img = corpus::formatted_fs::build().await;
+    let (fs, buffer) = mount(&img).await;
+    {
+        let root = fs.root_dir();
+        // One cluster holds 16 entries: ".", ".." and 7 files with 2 entries each.
+        let full = root.create_dir("FULL").await.unwrap();
+        for i in 0..7 {
+            full.create_file(&format!("F{i}")).await.unwrap().flush().await.unwrap();
+        }
+        // Use all free clusters, so the directory cannot grow.
+        let mut fill = root.create_file("FILL.BIN").await.unwrap();
+        let chunk = [0u8; 4096];
+        while fill.write(&chunk).await.is_ok() {}
+        fill.flush().await.unwrap();
+
+        let r = root.rename("LOG.TXT", &full, "moved.txt").await;
+        assert!(matches!(r, Err(embedded_fatfs::Error::NotEnoughSpace)), "{r:?}");
+        assert!(!full.exists("moved.txt").await.unwrap());
+
+        let mut log = root.open_file("LOG.TXT").await.unwrap();
+        let mut content = Vec::new();
+        let mut buf = [0u8; 512];
+        loop {
+            let n = log.read(&mut buf).await.unwrap();
+            if n == 0 {
+                break;
+            }
+            content.extend_from_slice(&buf[..n]);
+        }
+        log.flush().await.unwrap();
+        assert_eq!(content, corpus::formatted_fs::file_content("LOG.TXT", 512));
+    }
+    fs.unmount().await.unwrap();
+
+    let img = Fat32Image::parse(buffer.borrow().clone());
+    let problems = corpus::verify::check(&img);
+    assert!(problems.is_empty(), "{problems:#?}");
 }
 
 /// "." and ".." link to other directories, so they cannot be renamed.
