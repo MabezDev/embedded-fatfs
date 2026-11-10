@@ -95,11 +95,12 @@ impl<T: BlockDevice<SIZE>, const SIZE: usize> BufStream<T, SIZE> {
     async fn flush(&mut self) -> Result<(), T::Error> {
         // flush the internal buffer if we have modified the buffer
         if self.dirty {
-            self.dirty = false;
             // Note, alignment of internal buffer is guarenteed at compile time so we don't have to check it here
             self.inner
                 .write(self.current_block, slice_to_blocks(&self.buffer[..]))
                 .await?;
+            // Only a completed write cleans the buffer; after a failure the next flush retries it.
+            self.dirty = false;
         }
         Ok(())
     }
@@ -109,7 +110,9 @@ impl<T: BlockDevice<SIZE>, const SIZE: usize> BufStream<T, SIZE> {
         if block_start != self.current_block {
             // we may have modified data in old block, flush it to disk
             self.flush().await?;
-            // We have seeked to a new block, read it
+            // We have seeked to a new block, read it. A failed read can leave partial data in the
+            // buffer, so it must not stay labelled as the old block.
+            self.current_block = u32::MAX;
             let buf = &mut self.buffer[..];
             self.inner
                 .read(block_start, slice_to_blocks_mut(buf))
@@ -659,5 +662,116 @@ mod tests {
             block.seek(SeekFrom::Current(1)).await,
             Err(BufStreamError::InvalidSeek)
         );
+    }
+
+    /// In-memory block device whose next read or write can be made to fail once. A failing read
+    /// first clobbers the destination, as a driver does when a CRC check fails after the transfer.
+    struct FlakyDevice {
+        data: Vec<u8>,
+        fail_next_read: bool,
+        fail_next_write: bool,
+    }
+
+    #[derive(Debug)]
+    struct Failed;
+
+    impl BlockDevice<512> for FlakyDevice {
+        type Error = Failed;
+        type Align = aligned::A4;
+
+        async fn read(
+            &mut self,
+            block_address: u32,
+            data: &mut [Aligned<Self::Align, [u8; 512]>],
+        ) -> Result<(), Self::Error> {
+            if core::mem::take(&mut self.fail_next_read) {
+                for block in data.iter_mut() {
+                    block.fill(0xEE);
+                }
+                return Err(Failed);
+            }
+            for (index, block) in data.iter_mut().enumerate() {
+                let start = (block_address as usize + index) * 512;
+                block.copy_from_slice(&self.data[start..start + 512]);
+            }
+            Ok(())
+        }
+
+        async fn write(
+            &mut self,
+            block_address: u32,
+            data: &[Aligned<Self::Align, [u8; 512]>],
+        ) -> Result<(), Self::Error> {
+            if core::mem::take(&mut self.fail_next_write) {
+                return Err(Failed);
+            }
+            for (index, block) in data.iter().enumerate() {
+                let start = (block_address as usize + index) * 512;
+                self.data[start..start + 512].copy_from_slice(&block[..]);
+            }
+            Ok(())
+        }
+
+        async fn size(&mut self) -> Result<u64, Self::Error> {
+            Ok(self.data.len() as u64)
+        }
+    }
+
+    fn flaky_stream() -> BufStream<FlakyDevice, 512> {
+        let mut data = vec![0; 2048];
+        data[..4].copy_from_slice(b"blk0");
+        data[512..516].copy_from_slice(b"blk1");
+        BufStream::new(FlakyDevice {
+            data,
+            fail_next_read: false,
+            fail_next_write: false,
+        })
+    }
+
+    #[tokio::test]
+    async fn failed_flush_keeps_data_for_retry() {
+        let mut block = flaky_stream();
+        block.write_all(b"new!").await.unwrap();
+        block.inner.fail_next_write = true;
+        assert!(block.flush().await.is_err());
+
+        block.flush().await.unwrap();
+        assert_eq!(&block.into_inner().data[..4], b"new!");
+    }
+
+    #[tokio::test]
+    async fn failed_read_does_not_leave_garbage_under_old_block() {
+        let mut block = flaky_stream();
+        let mut tmp = [0u8; 4];
+        block.read_exact(&mut tmp).await.unwrap();
+        assert_eq!(&tmp, b"blk0");
+
+        block.inner.fail_next_read = true;
+        block.seek(SeekFrom::Start(512)).await.unwrap();
+        assert!(block.read_exact(&mut tmp).await.is_err());
+
+        block.seek(SeekFrom::Start(0)).await.unwrap();
+        block.read_exact(&mut tmp).await.unwrap();
+        assert_eq!(&tmp, b"blk0");
+    }
+
+    #[tokio::test]
+    async fn partial_write_after_failed_read_keeps_old_block() {
+        let mut block = flaky_stream();
+        let mut tmp = [0u8; 4];
+        block.read_exact(&mut tmp).await.unwrap();
+
+        block.inner.fail_next_read = true;
+        block.seek(SeekFrom::Start(512)).await.unwrap();
+        assert!(block.read_exact(&mut tmp).await.is_err());
+
+        block.seek(SeekFrom::Start(4)).await.unwrap();
+        block.write_all(b"ab").await.unwrap();
+        block.flush().await.unwrap();
+
+        let data = block.into_inner().data;
+        assert_eq!(&data[..6], b"blk0ab");
+        assert!(data[6..512].iter().all(|&byte| byte == 0));
+        assert_eq!(&data[512..516], b"blk1");
     }
 }
