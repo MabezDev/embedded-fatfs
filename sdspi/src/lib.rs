@@ -111,6 +111,8 @@ where
 
     /// To comply with the SD card spec, [sd_init] must be called between powerup and calling this function.
     pub async fn init(&mut self) -> Result<(), Error> {
+        // A failed init must not leave a previous card's state in place.
+        self.card = None;
         let r = async {
             with_timeout(self.delay.clone(), 1000, async {
                 loop {
@@ -224,6 +226,9 @@ where
         block_address: u32,
         data: &mut [Aligned<ALIGN, [u8; SIZE]>],
     ) -> Result<(), Error> {
+        if self.card.is_none() {
+            return Err(Error::NotInitialized);
+        }
         let r = async {
             if data.len() == 1 {
                 check_r1(self.cmd(read_single_block(block_address)).await?)?;
@@ -257,6 +262,9 @@ where
         block_address: u32,
         data: &[Aligned<ALIGN, [u8; SIZE]>],
     ) -> Result<(), Error> {
+        if self.card.is_none() {
+            return Err(Error::NotInitialized);
+        }
         let r = async {
             if data.len() == 1 {
                 check_r1(self.cmd(write_single_block(block_address)).await?)?;
