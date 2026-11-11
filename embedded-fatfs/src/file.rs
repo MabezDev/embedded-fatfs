@@ -130,9 +130,10 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
             self.fs.truncate_cluster_chain(current_cluster).await
         } else {
             debug_assert!(self.context.offset == 0);
-            if let Some(n) = self.context.first_cluster {
+            // Forget the chain before freeing it: if freeing fails part way, later writes must
+            // allocate a new chain instead of writing into clusters that were already freed.
+            if let Some(n) = self.context.first_cluster.take() {
                 self.fs.free_cluster_chain(n).await?;
-                self.context.first_cluster = None;
             }
             Ok(())
         }
