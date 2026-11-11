@@ -495,11 +495,8 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
         if e.is_dir() && !e.to_dir().is_empty().await? {
             return Err(Error::DirectoryIsNotEmpty);
         }
-        // free data
-        if let Some(n) = e.first_cluster() {
-            self.fs.free_cluster_chain(n).await?;
-        }
-        // free long and short name entries
+        // free long and short name entries first: if freeing the chain fails part way, the
+        // remaining clusters are only leaked instead of still being referenced by a live entry
         let mut stream = parent.stream.clone();
         stream.seek(SeekFrom::Start(e.offset_range.0)).await?;
         let num = ((e.offset_range.1 - e.offset_range.0) / u64::from(DIR_ENTRY_SIZE)) as usize;
@@ -512,6 +509,10 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
         }
         // remove requires stream flush
         stream.flush().await?;
+        // free data
+        if let Some(n) = e.first_cluster() {
+            self.fs.free_cluster_chain(n).await?;
+        }
         Ok(())
     }
 

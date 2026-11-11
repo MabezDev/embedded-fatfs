@@ -623,8 +623,11 @@ where
 
     pub(crate) async fn truncate(&mut self) -> Result<u32, Error<E>> {
         if let Some(n) = self.cluster {
-            // Move to the next cluster
-            self.next().await;
+            // Move to the next cluster. On a read error the iterator stops without moving, so
+            // return the error instead of changing a chain whose rest is unknown.
+            if let Some(Err(err)) = self.next().await {
+                return Err(err);
+            }
             // Mark previous cluster as end of chain
             write_fat(self.fat.borrow_mut(), self.fat_type, n, FatValue::EndOfChain).await?;
             // Free rest of chain
@@ -637,7 +640,10 @@ where
     pub(crate) async fn free(&mut self) -> Result<u32, Error<E>> {
         let mut num_free = 0;
         while let Some(n) = self.cluster {
-            self.next().await;
+            // A read error leaves `self.cluster` unchanged; freeing it again would loop forever.
+            if let Some(Err(err)) = self.next().await {
+                return Err(err);
+            }
             write_fat(self.fat.borrow_mut(), self.fat_type, n, FatValue::Free).await?;
             num_free += 1;
         }
@@ -791,5 +797,107 @@ mod tests {
             0x00, 0x00,
         ];
         test_fat(FatType::Fat32, FromTokio::new(Cursor::<Vec<u8>>::new(fat))).await;
+    }
+
+    /// Storage whose next `fail_reads` reads fail, like a card returning one CRC error. Writes are
+    /// counted so that a loop which keeps writing after an error fails the test instead of hanging.
+    struct FailingReads<S> {
+        inner: S,
+        fail_reads: usize,
+        writes: usize,
+    }
+
+    impl<S: IoBase<Error = std::io::Error>> IoBase for FailingReads<S> {
+        type Error = std::io::Error;
+    }
+
+    impl<S: Read + IoBase<Error = std::io::Error>> Read for FailingReads<S> {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            if self.fail_reads > 0 {
+                self.fail_reads -= 1;
+                return Err(std::io::Error::other("read failed"));
+            }
+            self.inner.read(buf).await
+        }
+    }
+
+    impl<S: Write + IoBase<Error = std::io::Error>> Write for FailingReads<S> {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            self.writes += 1;
+            assert!(self.writes < 100, "kept writing the FAT after a read error");
+            self.inner.write(buf).await
+        }
+
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            self.inner.flush().await
+        }
+    }
+
+    impl<S: Seek + IoBase<Error = std::io::Error>> Seek for FailingReads<S> {
+        async fn seek(&mut self, pos: io::SeekFrom) -> Result<u64, Self::Error> {
+            self.inner.seek(pos).await
+        }
+    }
+
+    fn fat32_with_failing_reads() -> FailingReads<FromTokio<Cursor<Vec<u8>>>> {
+        // Chain 9 -> 0xA -> 0x14 -> ...; every other entry is end of chain.
+        let mut fat = vec![0xFF; 0x20 * 4];
+        fat[0x9 * 4..0x9 * 4 + 4].copy_from_slice(&0xA_u32.to_le_bytes());
+        fat[0xA * 4..0xA * 4 + 4].copy_from_slice(&0x14_u32.to_le_bytes());
+        FailingReads {
+            inner: FromTokio::new(Cursor::new(fat)),
+            fail_reads: 0,
+            writes: 0,
+        }
+    }
+
+    #[tokio::test]
+    async fn free_returns_read_error() {
+        type S = FailingReads<FromTokio<Cursor<Vec<u8>>>>;
+        let mut storage = fat32_with_failing_reads();
+        storage.fail_reads = 1;
+        {
+            let mut iter = ClusterIterator::<&mut S, std::io::Error, S>::new(&mut storage, FatType::Fat32, 0x9);
+            assert!(iter.free().await.is_err());
+        }
+        assert_eq!(
+            read_fat(&mut storage, FatType::Fat32, 0x9).await.ok(),
+            Some(FatValue::Data(0xA))
+        );
+    }
+
+    #[tokio::test]
+    async fn truncate_returns_read_error() {
+        type S = FailingReads<FromTokio<Cursor<Vec<u8>>>>;
+        let mut storage = fat32_with_failing_reads();
+        storage.fail_reads = 1;
+        {
+            let mut iter = ClusterIterator::<&mut S, std::io::Error, S>::new(&mut storage, FatType::Fat32, 0x9);
+            assert!(iter.truncate().await.is_err());
+        }
+        assert_eq!(
+            read_fat(&mut storage, FatType::Fat32, 0x9).await.ok(),
+            Some(FatValue::Data(0xA))
+        );
+    }
+
+    #[tokio::test]
+    async fn free_returns_error_on_link_to_cluster_one() {
+        type S = FailingReads<FromTokio<Cursor<Vec<u8>>>>;
+        let mut storage = fat32_with_failing_reads();
+        storage.inner.seek(io::SeekFrom::Start(0xA * 4)).await.unwrap();
+        storage.inner.write_all(&1_u32.to_le_bytes()).await.unwrap();
+        {
+            let mut iter = ClusterIterator::<&mut S, std::io::Error, S>::new(&mut storage, FatType::Fat32, 0x9);
+            assert!(matches!(iter.free().await, Err(Error::CorruptedFileSystem)));
+        }
+        assert_eq!(
+            read_fat(&mut storage, FatType::Fat32, 0x9).await.ok(),
+            Some(FatValue::Free)
+        );
+        assert_eq!(
+            read_fat(&mut storage, FatType::Fat32, 0xA).await.ok(),
+            Some(FatValue::Data(1))
+        );
     }
 }
