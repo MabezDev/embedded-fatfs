@@ -182,6 +182,13 @@ where
             })
             .await??;
 
+            // Reads and writes send block numbers, which only SDHC/SDXC cards accept. An SDSC card
+            // expects byte addresses and would be written at the wrong place, so refuse it.
+            if !card.ocr.high_capacity() {
+                return Err(Error::UnsupportedCard);
+            }
+            card.card_type = CardCapacity::HighCapacity;
+
             trace!("send_csd");
             let r = self.cmd(send_csd(card.rca as u16)).await?;
             if r != R1_READY_STATE {
@@ -219,14 +226,22 @@ where
     ) -> Result<(), Error> {
         let r = async {
             if data.len() == 1 {
-                self.cmd(read_single_block(block_address)).await?;
+                check_r1(self.cmd(read_single_block(block_address)).await?)?;
                 self.read_data(&mut data[0][..]).await?;
             } else {
-                self.cmd(read_multiple_blocks(block_address)).await?;
+                check_r1(self.cmd(read_multiple_blocks(block_address)).await?)?;
+                let mut result = Ok(());
                 for block in data {
-                    self.read_data(&mut block[..]).await?;
+                    result = self.read_data(&mut block[..]).await;
+                    if result.is_err() {
+                        break;
+                    }
                 }
-                self.cmd(stop_transmission()).await?;
+                // CMD12 also ends the transfer after a failed block, so the card takes the next
+                // command instead of still sending data.
+                let stop = self.cmd(stop_transmission()).await;
+                result?;
+                stop?;
             }
             Ok(())
         }
@@ -244,7 +259,7 @@ where
     ) -> Result<(), Error> {
         let r = async {
             if data.len() == 1 {
-                self.cmd(write_single_block(block_address)).await?;
+                check_r1(self.cmd(write_single_block(block_address)).await?)?;
                 self.write_data(DATA_START_BLOCK, &data[0][..]).await?;
                 self.wait_idle().await?;
                 // check status, in SD SPI mode, the status is two bytes
@@ -262,17 +277,34 @@ where
                 self.acmd(cmd::<R1>(0x17, data.len() as u32)).await?;
                 self.wait_idle().await?;
 
-                self.cmd(write_multiple_blocks(block_address)).await?;
+                check_r1(self.cmd(write_multiple_blocks(block_address)).await?)?;
+                let mut result = Ok(());
                 for block in data {
-                    self.wait_idle().await?;
-                    self.write_data(WRITE_MULTIPLE_TOKEN, &block[..]).await?;
+                    result = async {
+                        self.wait_idle().await?;
+                        self.write_data(WRITE_MULTIPLE_TOKEN, &block[..]).await
+                    }
+                    .await;
+                    if result.is_err() {
+                        break;
+                    }
                 }
-                // stop the write
-                self.wait_idle().await?;
-                self.spi
-                    .write(&[STOP_TRAN_TOKEN])
-                    .await
-                    .map_err(|_| Error::SpiError)?;
+                // The stop token also ends the transfer after a failed block, so the card leaves
+                // the receive-data state.
+                let stop = async {
+                    self.wait_idle().await?;
+                    self.spi
+                        .write(&[STOP_TRAN_TOKEN])
+                        .await
+                        .map_err(|_| Error::SpiError)?;
+                    // The card sends one stuff byte before it starts signalling busy, and that byte
+                    // can read as 0xFF. Skip it so the busy wait does not end too early.
+                    self.read_byte().await?;
+                    self.wait_idle().await
+                }
+                .await;
+                result?;
+                stop?;
             }
             Ok(())
         }
@@ -447,6 +479,16 @@ async fn with_timeout<D: embedded_hal_async::delay::DelayNs, F: Future>(
     match select(fut, delay.delay_ms(timeout)).await {
         Either::First(r) => Ok(r),
         Either::Second(_) => Err(Error::Timeout),
+    }
+}
+
+/// Fails unless a command's R1 response reports no error. A data command the card rejected must
+/// not be followed by a data phase.
+fn check_r1(r1: u8) -> Result<(), Error> {
+    if r1 == R1_READY_STATE {
+        Ok(())
+    } else {
+        Err(Error::RegisterError(r1))
     }
 }
 
